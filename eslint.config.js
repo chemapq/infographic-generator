@@ -13,5 +13,34 @@ export default tseslint.config(
       ecmaVersion: 2022,
       sourceType: 'module',
     },
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+    },
+  },
+  {
+    // UI estática: se ejecuta en el navegador.
+    files: ['public/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'script',
+      globals: {
+        document: 'readonly',
+        window: 'readonly',
+        location: 'readonly',
+        navigator: 'readonly',
+        fetch: 'readonly',
+        FormData: 'readonly',
+        URL: 'readonly',
+        EventSource: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-unused-expressions': 'off',
+    },
   },
 );

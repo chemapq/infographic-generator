@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Infographic Generator · Awakelab</title>
+  <link rel="icon" type="image/png"
+    href="https://media.awakelab.world/MARCA_AWK26/awakelab_isotipo_fondo-blanco_transparente.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/" title="Awakelab · Infographic Generator">
+      <img class="brand-logo"
+        src="https://media.awakelab.world/MARCA_AWK26/awakelab_logo_fondo-oscuro_transparente.png"
+        alt="Awakelab">
+    </a>
+    <span class="brand-app">Infographic <strong>Generator</strong></span>
+  </header>
+
+  <main>
+    <!-- ═══ Vista 1: Subida ═══ -->
+    <section id="view-upload" class="view">
+      <h1>De imagen a <span class="hl">HTML editable</span></h1>
+      <p class="lede">Sube una infografía. Claude la analiza, la reconstruye como HTML/SVG con textos
+        reales y variables CSS, se compara visualmente con el original y refina en varias pasadas.</p>
+
+      <form id="upload-form">
+        <div id="dropzone" class="dropzone" tabindex="0">
+          <input type="file" id="file-input" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+          <div class="dropzone-idle">
+            <p><strong>Arrastra la imagen aquí</strong> o haz clic para elegirla</p>
+            <p class="muted">PNG, JPEG, WebP o GIF · máx. 25 MB</p>
+          </div>
+          <img id="drop-preview" class="drop-preview" hidden alt="Vista previa">
+        </div>
+
+        <div class="options">
+          <label>
+            Nº máx. de pasadas
+            <input type="number" id="max-passes" min="1" max="8" value="5">
+          </label>
+          <label class="grow">
+            Notas para la generación <span class="muted">(opcional)</span>
+            <input type="text" id="notes" placeholder="p. ej. prioriza el gráfico de barras central">
+          </label>
+        </div>
+
+        <button type="submit" id="btn-generate" class="cta" disabled>Generar</button>
+        <p id="upload-error" class="error" hidden></p>
+      </form>
+
+    </section>
+
+    <!-- ═══ Vistas 2 y 3: Progreso + Resultado ═══ -->
+    <section id="view-job" class="view" hidden>
+      <div class="job-head">
+        <a href="#/" class="back">← Nueva infografía</a>
+        <h1>Job <span id="job-id" class="mono"></span></h1>
+        <span id="job-status" class="chip">—</span>
+      </div>
+      <p id="job-error" class="error" hidden></p>
+
+      <div id="analysis-summary" class="analysis" hidden></div>
+
+      <ol id="timeline" class="timeline"></ol>
+      <p id="live-progress" class="live" hidden></p>
+
+      <!-- Resultado -->
+      <section id="result" class="result" hidden>
+        <h2>Resultado</h2>
+        <div class="result-toolbar">
+          <label>Pasada
+            <select id="pass-select"></select>
+          </label>
+          <button id="btn-download" class="cta small">Descargar HTML</button>
+          <button id="btn-copy" class="ghost small">Copiar código</button>
+          <a id="btn-open" class="ghost small" target="_blank" rel="noopener">Abrir en pestaña</a>
+        </div>
+
+        <div class="compare-wrap">
+          <div id="compare" class="compare">
+            <img id="compare-original" alt="Original">
+            <img id="compare-render" alt="Render" class="compare-top">
+            <div id="compare-divider" class="compare-divider"></div>
+          </div>
+          <input type="range" id="compare-range" min="0" max="100" value="50"
+            aria-label="Superposición original / resultado">
+          <div class="compare-legend"><span>Resultado</span><span>Original</span></div>
+        </div>
+
+        <details class="preview">
+          <summary>Vista previa en vivo (HTML real)</summary>
+          <div id="preview-scale" class="preview-scale">
+            <iframe id="preview-frame" sandbox="" title="Resultado HTML"></iframe>
+          </div>
+        </details>
+
+        <div id="placeholders" class="placeholders" hidden></div>
+
+        <form id="iterate-form" class="iterate">
+          <label for="iterate-prompt">Últimos ajustes <span class="muted">(una pasada más con tus
+              instrucciones como prioridad — repetible)</span></label>
+          <div class="iterate-row">
+            <input type="text" id="iterate-prompt"
+              placeholder='p. ej. "cambia el título a X", "el azul más oscuro", "quita el pie de página"'>
+            <button type="submit" class="cta small" id="btn-iterate">Aplicar</button>
+          </div>
+        </form>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
