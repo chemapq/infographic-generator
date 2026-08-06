@@ -24,6 +24,8 @@ export const env = {
   anthropicModel: process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8',
   maxPasses: int('MAX_PASSES', 5),
   targetScore: int('TARGET_SCORE', 97),
+  /** Tamaño máximo (MB) del archivo que se puede subir. */
+  maxUploadMb: 25,
   /** Lado largo máximo (px) de la imagen original enviada a Claude. */
   maxImageEdge: 2576,
   /** Lado largo máximo (px) de las capturas intermedias enviadas a Claude. */

@@ -47,8 +47,36 @@
   const btnGenerate = $('btn-generate');
   let selectedFile = null;
 
+  /** Muestra un error de subida con su detalle técnico plegado, si lo hay. */
+  function showUploadError(message, detail) {
+    const box = $('upload-error');
+    box.hidden = !message;
+    if (!message) return;
+    box.innerHTML =
+      `<span>${esc(message)}</span>` +
+      (detail
+        ? `<details class="detail"><summary>Detalle técnico</summary><code>${esc(detail)}</code></details>`
+        : '');
+  }
+
   function setFile(file) {
-    if (!file || !file.type.startsWith('image/')) return;
+    if (!file) return;
+    // Aviso en el momento, sin gastar una subida: el formato de las fotos de
+    // iPhone no se puede decodificar aquí.
+    if (/\.(heic|heif)$/i.test(file.name) || /^image\/(heic|heif)/i.test(file.type)) {
+      showUploadError(
+        `«${file.name}» está en formato HEIC/HEIF, el de las fotos del iPhone, y no se puede leer. ` +
+          'Conviértela a PNG o JPEG (en el Mac: Vista Previa → Archivo → Exportar) y vuelve a arrastrarla.',
+      );
+      return;
+    }
+    if (file.type && !file.type.startsWith('image/')) {
+      showUploadError(
+        `«${file.name}» no parece una imagen (${file.type}). Se admiten PNG, JPEG, WebP y GIF.`,
+      );
+      return;
+    }
+    showUploadError(null);
     selectedFile = file;
     preview.src = URL.createObjectURL(file);
     preview.hidden = false;
@@ -74,19 +102,23 @@
     if (!selectedFile) return;
     btnGenerate.disabled = true;
     btnGenerate.textContent = 'Subiendo…';
-    $('upload-error').hidden = true;
+    showUploadError(null);
     try {
       const body = new FormData();
       body.append('image', selectedFile);
       body.append('maxPasses', $('max-passes').value);
       body.append('notes', $('notes').value);
       const res = await fetch('/api/jobs', { method: 'POST', body });
-      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
-      const { jobId } = await res.json();
-      location.hash = `#/job/${jobId}`;
-    } catch (err) {
-      $('upload-error').textContent = err.message;
-      $('upload-error').hidden = false;
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showUploadError(payload.error || `El servidor respondió ${res.status}.`, payload.detail);
+        return;
+      }
+      location.hash = `#/job/${payload.jobId}`;
+    } catch {
+      showUploadError(
+        'No se pudo contactar con el servidor. Comprueba que sigue en marcha (npm run dev) e inténtalo otra vez.',
+      );
     } finally {
       btnGenerate.disabled = false;
       btnGenerate.textContent = 'Generar';
@@ -126,6 +158,7 @@
       const el = $('live-progress');
       el.hidden = false;
       el.textContent = `Pasada ${data.n}: generando HTML… ${Number(data.chars).toLocaleString('es')} caracteres`;
+      window.VisualEditor.onProgress(data);
     });
     ['pass:done', 'job:done', 'job:failed'].forEach((type) =>
       eventSource.addEventListener(type, () => { $('live-progress').hidden = true; }),
@@ -162,6 +195,7 @@
 
     renderTimeline(job);
     if (job.status === 'done' && job.passes.length > 0) renderResult(job);
+    window.VisualEditor.onJobUpdate(job);
   }
 
   function renderTimeline(job) {
@@ -186,7 +220,9 @@
               ${pass.score != null ? `<span class="score">${Number(pass.score).toFixed(2)}%</span>` : ''}
               ${pass.n === job.bestPass ? '<span class="chip">mejor</span>' : ''}
             </div>
-            ${pass.userPrompt ? `<p class="pass-summary">«${esc(pass.userPrompt)}»</p>` : ''}
+            ${pass.userPrompt
+              ? `<p class="pass-summary">${pass.targetLabel ? `<code>${esc(pass.targetLabel)}</code> ` : ''}«${esc(pass.userPrompt)}»</p>`
+              : ''}
             ${verdict ? `<p class="pass-summary">${esc(verdict.summary)}</p>` : ''}
             ${discrepancies ? `<ul class="discrepancies">${discrepancies}</ul>` : ''}
           </div>
@@ -218,9 +254,12 @@
     const defaultPass = iterations.length > 0
       ? iterations[iterations.length - 1].n
       : (job.bestPass ?? job.passes[job.passes.length - 1].n);
-    select.value = [...select.options].some((o) => o.value === previous) && previous !== ''
-      ? previous
-      : String(defaultPass);
+    // Con el editor abierto se sigue siempre la pasada más reciente.
+    const keepPrevious =
+      !window.VisualEditor.isOpen() &&
+      [...select.options].some((o) => o.value === previous) &&
+      previous !== '';
+    select.value = keepPrevious ? previous : String(defaultPass);
     selectPass(Number(select.value));
 
     if (job.spec && job.spec.photoZones.length > 0) {
@@ -265,6 +304,17 @@
     a.href = `/api/jobs/${resultJob.id}/result?pass=${n}`;
     a.download = `${resultJob.id}-pass-${n}.html`;
     a.click();
+  });
+
+  $('btn-edit').addEventListener('click', () => {
+    if (!resultJob) return;
+    window.VisualEditor.open({
+      jobId: resultJob.id,
+      pass: Number($('pass-select').value),
+      width: resultJob.width,
+      height: resultJob.height,
+      passCount: resultJob.passes.length,
+    });
   });
 
   $('btn-copy').addEventListener('click', async () => {

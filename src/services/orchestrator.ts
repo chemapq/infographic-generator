@@ -3,18 +3,18 @@ import sharp from 'sharp';
 import { env } from '../config/env.js';
 import type { JobEvent, JobOptions, JobRecord, PassRecord } from '../types.js';
 import { analyzeImage } from './claude/analyze.js';
-import {
-  addUsage,
-  describeApiError,
-  emptyUsage,
-  JobConversation,
-  type CallUsage,
-} from './claude/client.js';
+import { addUsage, emptyUsage, JobConversation, type CallUsage } from './claude/client.js';
 import { compareRender } from './claude/compare.js';
 import { generateHtml } from './claude/generate.js';
-import { generateInstruction, iterateInstruction, refineInstruction } from './claude/prompts.js';
+import {
+  generateInstruction,
+  iterateInstruction,
+  refineInstruction,
+  type IterateTarget,
+} from './claude/prompts.js';
 import type { Verdict } from './claude/schemas.js';
 import { diffImages } from './differ.js';
+import { describeError } from './errors.js';
 import { renderHtml } from './renderer.js';
 import {
   initJobDir,
@@ -324,7 +324,7 @@ async function runPipeline(job: ActiveJob): Promise<void> {
     });
   } catch (error) {
     record.status = 'failed';
-    record.error = describeApiError(error);
+    record.error = describeError(error).message;
     await saveJob(record).catch(() => {});
     emit(job, 'job:failed', { error: record.error });
   }
@@ -334,17 +334,25 @@ async function runPipeline(job: ActiveJob): Promise<void> {
  * Iteración final dirigida por el usuario: una pasada más con sus
  * instrucciones como prioridad. Repetible; queda versionada en passes/.
  */
-export async function requestIteration(jobId: string, prompt: string): Promise<JobRecord> {
+export async function requestIteration(
+  jobId: string,
+  prompt: string,
+  target?: IterateTarget,
+): Promise<JobRecord> {
   const job = await getJob(jobId);
   if (!job) throw new Error(`Job ${jobId} no encontrado`);
   if (job.record.status !== 'done') {
     throw new Error('El job debe estar terminado antes de iterar con un prompt.');
   }
-  enqueue(() => runIteration(job, prompt));
+  enqueue(() => runIteration(job, prompt, target));
   return job.record;
 }
 
-async function runIteration(job: ActiveJob, prompt: string): Promise<void> {
+async function runIteration(
+  job: ActiveJob,
+  prompt: string,
+  target?: IterateTarget,
+): Promise<void> {
   const { record } = job;
   try {
     const originalPng = await readOriginal(record.id);
@@ -368,12 +376,14 @@ async function runIteration(job: ActiveJob, prompt: string): Promise<void> {
     const passNumber = (record.passes[record.passes.length - 1]?.n ?? 0) + 1;
     const instruction =
       `HTML actual sobre el que aplicar los cambios:\n\n${currentHtml}\n\n` +
-      iterateInstruction(prompt);
+      iterateInstruction(prompt, target);
 
     const { pass } = await runPass(job, passNumber, 'iterate', instruction, originalPng);
     pass.userPrompt = prompt;
+    if (target) pass.targetLabel = target.label;
     accumulate(job, pass.usage);
     record.passes.push(pass);
+    record.error = null; // el ajuste salió bien: se limpia un fallo anterior
     record.status = 'done';
     await saveJob(record);
     emit(job, 'pass:done', {
@@ -389,7 +399,7 @@ async function runIteration(job: ActiveJob, prompt: string): Promise<void> {
     });
   } catch (error) {
     record.status = 'done'; // la iteración falla, pero el resultado previo sigue siendo válido
-    record.error = describeApiError(error);
+    record.error = describeError(error).message;
     await saveJob(record).catch(() => {});
     emit(job, 'job:failed', { error: record.error, during: 'iterate' });
   }

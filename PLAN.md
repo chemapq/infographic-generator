@@ -13,7 +13,7 @@
 | Decisión | Elección |
 | --- | --- |
 | Motor IA | **API directa de Anthropic** (Messages API con visión). La app controla el bucle: pasadas y consumo predecibles. |
-| Editabilidad | **Por fases.** Fase 1: HTML/SVG limpio y semántico + edición vía prompt. Fase 2: editor visual en la web. |
+| Editabilidad | **Por fases.** Fase 1: HTML/SVG limpio y semántico + edición vía prompt. Fase 2: señalar un elemento en la web y pedirle el cambio a Claude. |
 | Alcance de imágenes | **Vectorizable puro**: texto, formas, iconos, diagramas, gráficos de datos. Fotos/ilustraciones complejas → placeholders marcados para reemplazo manual. |
 | Despliegue | **Local, un usuario** (`npm run dev`). Sin auth. Proyectos persistidos en disco (`output/`). |
 | Modelo | `claude-opus-4-8` (visión de alta resolución hasta 2576 px de lado largo, coordenadas 1:1 con píxeles). Configurable por env. |
@@ -95,6 +95,15 @@ La UI muestra original vs resultado lado a lado. El usuario escribe un prompt li
 **una pasada más** con esas instrucciones como prioridad. Puede repetirse las veces que
 quiera; cada iteración queda versionada en `output/<jobId>/passes/`.
 
+**Señalando el elemento** (implementado): en la vista de resultado el usuario abre la
+infografía a pantalla completa, hace clic en cualquier elemento del HTML —incluidas las
+formas dentro de un SVG— y escribe el cambio en una ventanita anclada a él ("rehaz este
+gráfico como barras horizontales", "cambia este azul por el verde de la paleta"). El
+contexto del elemento (etiqueta, selector, markup y texto) viaja con el prompt en
+`POST /iterate`, de modo que Claude acota el cambio a ese elemento y re-emite el HTML
+completo. El navegador no edita nada: el HTML lo escribe siempre Claude, y cada petición
+es una pasada más del job.
+
 ---
 
 ## 4. Convenciones del HTML editable (el contrato de salida)
@@ -153,7 +162,7 @@ Este contrato es lo que hace que "editable" sea real y no solo un screenshot en 
 | `POST /api/jobs` | Multipart con la imagen (+ opciones: `maxPasses`, notas del usuario). Devuelve `{ jobId }` y arranca el pipeline. |
 | `GET /api/jobs/:id` | Estado del job: pasada actual, scores y uso de tokens. |
 | `GET /api/jobs/:id/events` | **SSE**: progreso en vivo (inicio/fin de pasada, score, discrepancias, texto en streaming). |
-| `POST /api/jobs/:id/iterate` | Body `{ prompt }` → iteración final dirigida por el usuario. Repetible. |
+| `POST /api/jobs/:id/iterate` | Body `{ prompt, target? }` → iteración dirigida por el usuario; con `target` (elemento señalado) el cambio se acota a él. Repetible. |
 | `GET /api/jobs/:id/result` | HTML final (y `?pass=n` para versiones anteriores). |
 | `GET /api/jobs/:id/assets/*` | Original, capturas y diffs de cada pasada (para el side-by-side de la UI). |
 
@@ -169,6 +178,9 @@ Estática (HTML + CSS + JS vanilla, sin build), servida por Express. Tres vistas
 3. **Resultado**: original vs resultado lado a lado con **slider de superposición**,
    selector de pasada, caja de prompt para la iteración final, botones *Descargar HTML* y
    *Copiar código*.
+4. **Editor por prompt** (superpuesto): la infografía a tamaño completo en un
+   `<iframe sandbox="allow-same-origin">` del mismo origen; la app lee su DOM para resaltar
+   el elemento bajo el puntero y, al hacer clic, abre la ventanita de prompt anclada a él.
 
 **Identidad visual de la herramienta** (marca Awakelab 2026 — aplica a la UI de la app,
 *no* a las infografías generadas, que respetan la paleta de su imagen original):
@@ -227,7 +239,7 @@ TARGET_SCORE=97        # % de similitud pixelmatch para considerar "suficiente"
 | **M2 — Bucle iterativo** | `differ` + `compare` + `orchestrator` con criterio de parada, persistencia por pasada y log de uso de tokens. | El score mejora entre pasadas y el bucle se detiene solo. |
 | **M3 — API + UI** | Endpoints de §6 y las tres vistas de §7 con SSE y branding. | Flujo completo desde el navegador: subir → ver pasadas → resultado. |
 | **M4 — Iteración final + pulido** | `POST /iterate`, versionado de iteraciones, slider de comparación, descarga, caché de prompt verificada. | Un prompt del usuario produce el cambio pedido sin romper el resto. |
-| **Fase 2 — Editor visual** | Edición in-place en la UI: doble clic en texto (contenteditable), selector de color ligado a variables CSS, selección/movimiento de capas SVG, export. | Editar sin tocar código. *Se planifica en detalle al cerrar M4.* |
+| **Fase 2 — Edición señalando elementos** | Lienzo a pantalla completa: resaltado al pasar el ratón, selección por clic de cualquier elemento (también dentro de SVG) y ventanita de prompt que manda el cambio a Claude con el contexto del elemento. | Clic en un elemento + frase en lenguaje natural → Claude cambia solo eso y el resto queda igual. |
 
 ---
 
@@ -240,6 +252,7 @@ TARGET_SCORE=97        # % de similitud pixelmatch para considerar "suficiente"
 | **Bucle que no converge** (correcciones que rompen otra zona). | Veredicto incluye regresiones detectadas vs pasada anterior; si el score cae 2 veces, se revierte a la mejor pasada y se para. Techo duro `MAX_PASSES`. |
 | **Consumo por job se dispara.** | Caché de prompt (conversación única por job), capturas intermedias a resolución reducida, uso de tokens registrado en `output/<jobId>/usage.json`, techo de pasadas. |
 | **HTML generado con recursos externos o JS.** | Validador post-generación: solo se permite `fonts.googleapis.com`/`gstatic`; cualquier `<script>` o URL externa se elimina y se le pide corrección a Claude. |
+| **Imagen que no se puede procesar** (HEIC/HEIF de iPhone, PDF, SVG, archivo dañado) y **errores ilegibles** de las librerías (libvips/libheif, Playwright, SDK). | El formato real se detecta por los bytes de cabecera antes de procesar, no por el tipo MIME (que se deduce de la extensión y miente): `src/services/image.ts`. Los fallos se traducen a un mensaje con la acción a tomar y el técnico queda aparte en `detail`: `src/services/errors.ts`. Los HEIC se avisan ya en el navegador, sin gastar la subida. |
 | **Render no determinista.** | Viewport y `deviceScaleFactor` fijos, `prefers-reduced-motion`, espera a fuentes cargadas, misma versión de Chromium anclada por lockfile. |
 | **Fotos dentro de la infografía.** | Fuera de alcance por decisión: placeholder marcado con descripción y color medio; listado de reemplazos pendientes en el resultado. |
 

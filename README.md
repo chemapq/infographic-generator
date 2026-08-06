@@ -29,10 +29,28 @@ Sin `ANTHROPIC_API_KEY`, el SDK también acepta `ANTHROPIC_AUTH_TOKEN` o un perf
 
 ## Uso
 
-- **Web**: abre `http://localhost:3000`, arrastra la imagen, elige nº máx. de pasadas y pulsa *Generar*. Verás el progreso en vivo (pasadas, score y discrepancias) y al terminar el comparador con slider, la descarga del HTML y la caja de ajustes finales.
+- **Web**: abre `http://localhost:3000`, arrastra la imagen, elige nº máx. de pasadas y pulsa *Generar*. Verás el progreso en vivo (pasadas, score y discrepancias) y al terminar el comparador con slider, la **edición señalando elementos**, la descarga del HTML y la caja de ajustes finales.
 - **CLI** (pipeline sin UI): `npm run job -- ruta/a/infografia.png [maxPasses]`
 
+**Formatos admitidos:** PNG, JPEG, WebP y GIF, hasta 25 MB. El formato se comprueba por el contenido del archivo, no por su extensión, y lo que no se puede procesar se rechaza explicando qué hacer. En particular, las fotos **HEIC/HEIF del iPhone no se pueden decodificar**: conviértelas a PNG o JPEG (en el Mac, Vista Previa → Archivo → Exportar). Los errores de las librerías (libvips, Playwright, API de Anthropic) se traducen a lenguaje llano, con el mensaje técnico plegado aparte.
+
 Todo el estado de un trabajo vive en `output/<jobId>/` (imagen original, HTML/captura/diff de cada pasada, `job.json`, `usage.json` con el uso de tokens) y es reabrible tras reiniciar el servidor.
+
+## Editar señalando elementos
+
+En el resultado, *Editar señalando* abre la infografía a pantalla completa. Al pasar el ratón se resaltan los elementos y **al hacer clic en uno** se abre una ventanita con un prompt: escribes el cambio en lenguaje natural y **Claude lo aplica sobre ese elemento**.
+
+- «rehaz este gráfico como barras horizontales»
+- «cambia este azul por el verde de la paleta»
+- «pon este título en dos líneas y más grande»
+
+Funciona con cualquier elemento del documento, incluidas las formas y los iconos dentro de un SVG. *Señalar el contenedor* amplía la selección al elemento padre (para pedir cambios de una sección entera) y *Cambio en toda la pieza…* manda la petición sin acotarla a nada.
+
+Cada petición es una **pasada más del job**: se envía a `POST /api/jobs/:id/iterate` con el contexto del elemento (etiqueta, selector, markup y texto), Claude reescribe el HTML completo, el servidor lo renderiza y lo compara con el original, y el lienzo se recarga con el resultado sin perder la selección. Todo queda versionado en `passes/`, así que siempre se puede volver a una pasada anterior desde el selector del resultado.
+
+Detalle de implementación: el lienzo es un `<iframe sandbox="allow-same-origin">` servido desde el mismo origen (sin `allow-scripts`: el documento no ejecuta JS), así que la app lee su DOM para describir el elemento señalado. El HTML generado no necesita ninguna instrumentación y el navegador nunca lo modifica: los cambios los hace siempre Claude.
+
+Los clics **no** se escuchan dentro del iframe sino en una capa transparente por encima, y el elemento se resuelve con `elementFromPoint`: WebKit (Safari) no despacha eventos DOM en un documento con `sandbox` sin `allow-scripts`, aunque el padre sí pueda leer su DOM. Y el editor se engancha en cuanto existe el DOM del iframe, sin esperar a su evento `load`, que espera también a las Google Fonts del documento generado y con la red lenta dejaba el lienzo visible pero sin responder.
 
 ## API HTTP
 
@@ -41,7 +59,7 @@ Todo el estado de un trabajo vive en `output/<jobId>/` (imagen original, HTML/ca
 | `POST /api/jobs` | Multipart con `image` (+ `maxPasses`, `notes`). Devuelve `{ jobId }` y arranca el pipeline. |
 | `GET /api/jobs/:id` | Estado del job: pasadas, scores y uso de tokens. |
 | `GET /api/jobs/:id/events` | SSE con progreso en vivo (replay incluido). |
-| `POST /api/jobs/:id/iterate` | `{ "prompt": "..." }` → una pasada más con las instrucciones del usuario. Repetible. |
+| `POST /api/jobs/:id/iterate` | `{ "prompt": "...", "target"?: { label, selector, html, text } }` → una pasada más con las instrucciones del usuario, acotada al elemento señalado si se envía `target`. Repetible. |
 | `GET /api/jobs/:id/result` | HTML final (`?pass=n` para versiones anteriores). |
 | `GET /api/jobs/:id/assets/...` | Original, capturas y diffs. |
 
@@ -60,7 +78,10 @@ src/
     ├── differ.ts             # sharp + pixelmatch: score + heatmap
     ├── validator.ts          # contrato: sin JS ni red fuera de Google Fonts
     └── store.ts              # persistencia en output/<jobId>/
-public/                       # UI (subida · progreso · resultado)
+public/
+├── index.html · styles.css   # UI: subida · progreso · resultado · editor
+├── app.js                    # subida, SSE, timeline, comparador
+└── editor.js                 # señalar elementos y pedir el cambio a Claude
 ```
 
 ## Uso de tokens

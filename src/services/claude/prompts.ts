@@ -63,12 +63,45 @@ export function refineInstruction(verdict: {
   return lines.join('\n');
 }
 
-export function iterateInstruction(userPrompt: string): string {
-  return `El usuario ha revisado el resultado y pide estos ajustes finales, que tienen PRIORIDAD sobre la fidelidad al original:
+/** Elemento señalado en el editor visual al que va dirigida la petición. */
+export interface IterateTarget {
+  /** Etiqueta legible, p. ej. `h1#titulo` o `path · icono-cohete`. */
+  label: string;
+  /** Selector CSS hasta el elemento dentro del documento. */
+  selector?: string;
+  /** Markup actual del elemento (recortado). */
+  html?: string;
+  /** Texto que contiene, si tiene. */
+  text?: string;
+}
+
+export function iterateInstruction(userPrompt: string, target?: IterateTarget): string {
+  if (!target) {
+    return `El usuario ha revisado el resultado y pide estos ajustes finales, que tienen PRIORIDAD sobre la fidelidad al original:
 
 """
 ${userPrompt}
 """
 
 Aplica exactamente lo pedido sin romper el resto de la pieza y re-emite el fichero HTML completo. Responde solo con el HTML.`;
+  }
+
+  const lines = [
+    'El usuario ha señalado UN elemento concreto del HTML en el editor visual y pide un cambio SOBRE ÉL. Su petición tiene PRIORIDAD sobre la fidelidad al original.',
+    '',
+    `Elemento señalado: ${target.label}`,
+  ];
+  if (target.selector) lines.push(`Selector: ${target.selector}`);
+  if (target.text) lines.push(`Texto que contiene: "${target.text}"`);
+  if (target.html) lines.push('', 'Markup actual del elemento:', '```html', target.html, '```');
+  lines.push(
+    '',
+    'Petición del usuario:',
+    '"""',
+    userPrompt,
+    '"""',
+    '',
+    'Aplica el cambio en ese elemento (y solo en lo imprescindible a su alrededor: si hace falta tocar sus variables CSS, su contenedor o el SVG que lo contiene, hazlo). El resto de la pieza debe quedar exactamente igual. Re-emite el fichero HTML completo y responde solo con el HTML.',
+  );
+  return lines.join('\n');
 }

@@ -76,7 +76,8 @@
           <label>Pasada
             <select id="pass-select"></select>
           </label>
-          <button id="btn-download" class="cta small">Descargar HTML</button>
+          <button id="btn-edit" class="cta small">Editar señalando</button>
+          <button id="btn-download" class="ghost small">Descargar HTML</button>
           <button id="btn-copy" class="ghost small">Copiar código</button>
           <a id="btn-open" class="ghost small" target="_blank" rel="noopener">Abrir en pestaña</a>
         </div>
@@ -114,6 +115,72 @@
     </section>
   </main>
 
+  <!-- ═══ Editor por prompt (superpuesto) ═══ -->
+  <section id="editor" class="editor" hidden role="dialog" aria-modal="true"
+    aria-label="Editar señalando elementos">
+    <header class="ed-bar">
+      <strong class="ed-brand">Señala y <span class="hl">pide el cambio</span></strong>
+      <span id="ed-pass" class="ed-meta"></span>
+      <div class="ed-zoom">
+        <button type="button" id="ed-zoom-out" class="ed-icon" title="Reducir zoom">−</button>
+        <span id="ed-zoom-label" class="ed-meta mono">100%</span>
+        <button type="button" id="ed-zoom-in" class="ed-icon" title="Ampliar zoom">+</button>
+        <button type="button" id="ed-zoom-fit" class="ghost small">Ajustar</button>
+      </div>
+      <div class="ed-bar-right">
+        <button type="button" id="ed-global" class="ghost small">Cambio en toda la pieza…</button>
+        <button type="button" id="ed-close" class="ed-icon" title="Cerrar (Esc)">✕</button>
+      </div>
+    </header>
+
+    <p id="ed-error" class="ed-error error" hidden></p>
+
+    <div id="ed-canvas" class="ed-canvas">
+      <div id="ed-sizer" class="ed-sizer">
+        <div id="ed-stage" class="ed-stage">
+          <iframe id="ed-frame" class="ed-frame" sandbox="allow-same-origin"
+            title="Infografía generada"></iframe>
+          <!-- Capa que recoge los clics: el documento del iframe no ejecuta JS
+               y en WebKit tampoco despacha eventos, así que se señala desde
+               aquí y se resuelve el elemento con elementFromPoint. -->
+          <div id="ed-hit" class="ed-hit"></div>
+          <div id="ed-overlays" class="ed-overlays">
+            <div id="ed-hover" class="ed-box ed-box-hover" hidden></div>
+            <div id="ed-sel" class="ed-box ed-box-sel" hidden>
+              <span id="ed-sel-label" class="ed-box-label"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ventanita de prompt, anclada al elemento señalado -->
+    <div id="ed-prompt" class="ed-prompt" hidden>
+      <header class="ed-prompt-head">
+        <span id="ed-prompt-target" class="ed-prompt-target mono"></span>
+        <button type="button" id="ed-prompt-close" class="ed-icon" title="Cerrar">✕</button>
+      </header>
+      <p id="ed-prompt-context" class="ed-prompt-context" hidden></p>
+      <form id="ed-prompt-form">
+        <textarea id="ed-prompt-input" rows="3" spellcheck="false"
+          placeholder="p. ej. «rehaz este gráfico como barras horizontales», «cambia este azul por el verde de la paleta», «pon este título en dos líneas y más grande»"></textarea>
+        <div class="ed-prompt-row">
+          <button type="button" id="ed-prompt-parent" class="ghost small"
+            title="Ampliar la selección al elemento contenedor">Señalar el contenedor</button>
+          <button type="submit" id="ed-prompt-send" class="cta small">Pedir el cambio</button>
+        </div>
+      </form>
+      <p id="ed-prompt-status" class="ed-prompt-status" hidden></p>
+    </div>
+
+    <footer class="ed-foot">
+      <span><strong>Clic</strong> en cualquier elemento para pedirle un cambio a Claude ·
+        <strong>⌘↵</strong> envía · <strong>Esc</strong> cierra · cada cambio queda como una
+        pasada nueva del job</span>
+    </footer>
+  </section>
+
+  <script src="editor.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

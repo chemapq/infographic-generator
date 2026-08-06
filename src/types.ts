@@ -20,6 +20,8 @@ export interface PassRecord {
   kind: PassKind;
   /** Prompt del usuario cuando kind === 'iterate'. */
   userPrompt?: string;
+  /** Elemento señalado en el editor visual, si la iteración iba dirigida a uno. */
+  targetLabel?: string;
   score: number | null;
   verdict: Verdict | null;
   usage: CallUsage;

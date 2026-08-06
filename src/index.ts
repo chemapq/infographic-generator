@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import { jobsRouter } from './api/jobs.router.js';
 import { env } from './config/env.js';
+import { describeError } from './services/errors.js';
 import { closeBrowser } from './services/renderer.js';
 
 const app = express();
@@ -14,12 +15,15 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, model: env.anthropicModel, maxPasses: env.maxPasses });
 });
 
-// Manejador de errores final: nunca dejar la petición colgada.
+// Manejador de errores final: nunca dejar la petición colgada. El mensaje que
+// se devuelve va traducido a lenguaje llano; el técnico queda en el log y en
+// `detail` para quien quiera mirarlo.
 app.use(
   (error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error('[api]', error);
+    const friendly = describeError(error);
+    console.error('[api]', friendly.message, friendly.detail ? `— ${friendly.detail}` : '');
     if (!res.headersSent) {
-      res.status(500).json({ error: error instanceof Error ? error.message : 'Error interno' });
+      res.status(friendly.status).json({ error: friendly.message, detail: friendly.detail });
     }
   },
 );

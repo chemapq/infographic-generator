@@ -2,6 +2,9 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'node:path';
 import { env } from '../config/env.js';
+import type { IterateTarget } from '../services/claude/prompts.js';
+import { describeUnsupportedImage } from '../services/errors.js';
+import { isSupportedImageKind, sniffImageKind } from '../services/image.js';
 import {
   createJob,
   currentResultPass,
@@ -15,20 +18,30 @@ import { openSse } from './sse.js';
 
 export const jobsRouter = Router();
 
+// Sin filtro por tipo MIME: el navegador lo deduce de la extensión y miente a
+// menudo (un HEIC renombrado llega como image/jpeg). El formato real se
+// comprueba luego mirando los bytes, que es lo que de verdad importa.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    cb(null, ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.mimetype));
-  },
+  limits: { fileSize: env.maxUploadMb * 1024 * 1024, files: 1 },
 });
 
 /** POST /api/jobs — multipart con la imagen (+ maxPasses, notes). Arranca el pipeline. */
 jobsRouter.post('/', upload.single('image'), async (req, res) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'Falta la imagen (campo "image": png, jpeg, webp o gif).' });
+  if (!req.file || req.file.size === 0) {
+    res.status(400).json({
+      error: 'No llegó ninguna imagen. Elige un archivo PNG, JPEG, WebP o GIF y vuelve a intentarlo.',
+    });
     return;
   }
+
+  const kind = sniffImageKind(req.file.buffer);
+  if (!isSupportedImageKind(kind)) {
+    const { status, message, detail } = describeUnsupportedImage(kind, req.file.mimetype);
+    res.status(status).json({ error: message, detail });
+    return;
+  }
+
   const requested = Number.parseInt(String(req.body.maxPasses ?? ''), 10);
   const maxPasses = Number.isNaN(requested) ? env.maxPasses : Math.min(Math.max(requested, 1), 8);
   const notes = typeof req.body.notes === 'string' && req.body.notes.trim() !== ''
@@ -68,15 +81,36 @@ jobsRouter.get('/:id/events', async (req, res) => {
   });
 });
 
-/** POST /api/jobs/:id/iterate — iteración final dirigida por el usuario. */
+/** Recorta un campo de texto del cuerpo; devuelve undefined si viene vacío. */
+function field(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed.slice(0, maxLength);
+}
+
+/**
+ * POST /api/jobs/:id/iterate — ajuste dirigido por el usuario. Con `target`
+ * (elemento señalado en el editor visual) la petición se acota a ese elemento.
+ */
 jobsRouter.post('/:id/iterate', async (req, res) => {
-  const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
+  const prompt = field(req.body?.prompt, 2000);
   if (!prompt) {
     res.status(400).json({ error: 'Falta el campo "prompt".' });
     return;
   }
+  const raw = req.body?.target;
+  const label = raw && typeof raw === 'object' ? field(raw.label, 200) : undefined;
+  const target: IterateTarget | undefined = label
+    ? {
+        label,
+        selector: field(raw.selector, 500),
+        html: field(raw.html, 4000),
+        text: field(raw.text, 400),
+      }
+    : undefined;
+
   try {
-    const record = await requestIteration(req.params.id, prompt);
+    const record = await requestIteration(req.params.id, prompt, target);
     res.status(202).json({ jobId: record.id, queued: true });
   } catch (error) {
     res.status(409).json({ error: error instanceof Error ? error.message : String(error) });
