@@ -12,8 +12,12 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use('/api/auth', authRouter);
 
-/** Lo mínimo para poder pintar la pantalla de login. */
-const PUBLIC_PATHS = new Set(['/login.html', '/styles.css', '/favicon.ico']);
+/**
+ * Lo mínimo para poder pintar la pantalla de login, más el healthcheck: los
+ * chequeos de salud de la plataforma (Render, Railway, Fly.io…) no mandan
+ * cookie de sesión, así que si quedara detrás del login lo verían caído.
+ */
+const PUBLIC_PATHS = new Set(['/login.html', '/styles.css', '/favicon.ico', '/api/health']);
 
 /**
  * Guardián: va antes que los estáticos y que la API, así que cubre también el

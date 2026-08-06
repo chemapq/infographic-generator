@@ -68,6 +68,13 @@ AUTH_SESSION_HOURS=12
 - **Sirve por HTTPS.** Por HTTP la contraseña viaja en claro; ponlo detrás de un proxy con certificado o de un túnel con TLS. La cookie se marca `Secure` automáticamente cuando la petición llega por HTTPS.
 - Ojo con dejarlo sin `AUTH_PASSWORD` fuera de tu equipo: el puerto queda accesible para cualquiera que lo alcance, y el arranque lo avisa por consola.
 
+## Despliegue
+
+Servidor de larga duración (cola en memoria, disco local, Chromium vía Playwright, SSE):
+necesita un host con proceso persistente y disco propio, no funciones serverless. Hay un
+`Dockerfile` listo para Render, Railway, Fly.io o un VPS — variables de entorno, volumen
+persistente y pasos por host en [DEPLOY.md](DEPLOY.md).
+
 ## API HTTP
 
 | Método y ruta | Descripción |

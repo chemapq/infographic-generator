@@ -1,0 +1,23 @@
+# Blueprint de Render: New → Blueprint → conecta el repo y Render lo lee solo.
+# Pensado para el plan free: sin disco (los jobs no sobreviven a un redeploy
+# ni a que el servicio se duerma por inactividad). Para persistencia real,
+# sube a un plan de pago y añade un disk montado en /app/output — ver DEPLOY.md.
+services:
+  - type: web
+    name: infographic-generator
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Secretos: no se guardan en este fichero. Render los pide al crear el
+      # servicio desde el Blueprint.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AUTH_PASSWORD
+        sync: false
+      # Generado por Render al crear el servicio; no hace falta tocarlo.
+      - key: AUTH_SECRET
+        generateValue: true

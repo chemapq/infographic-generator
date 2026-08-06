@@ -15,7 +15,7 @@
 | Motor IA | **API directa de Anthropic** (Messages API con visión). La app controla el bucle: pasadas y consumo predecibles. |
 | Editabilidad | **Por fases.** Fase 1: HTML/SVG limpio y semántico + edición vía prompt. Fase 2: señalar un elemento en la web y pedirle el cambio a Claude. |
 | Alcance de imágenes | **Vectorizable puro**: texto, formas, iconos, diagramas, gráficos de datos. Fotos/ilustraciones complejas → placeholders marcados para reemplazo manual. |
-| Despliegue | **Local, un usuario** (`npm run dev`), proyectos persistidos en disco (`output/`). Para desplegarla, `AUTH_PASSWORD` activa una pantalla de login que cubre toda la app; en producción es obligatoria (el servidor no arranca sin ella). |
+| Despliegue | **Local, un usuario** (`npm run dev`), proyectos persistidos en disco (`output/`). Para desplegarla, `AUTH_PASSWORD` activa una pantalla de login que cubre toda la app; en producción es obligatoria (el servidor no arranca sin ella). Al ser un proceso con estado en memoria + disco propio, se despliega con Docker en un host de proceso persistente (Render/Railway/Fly.io/VPS) — ver [DEPLOY.md](DEPLOY.md) —, no en plataformas serverless. |
 | Modelo | `claude-opus-4-8` (visión de alta resolución hasta 2576 px de lado largo, coordenadas 1:1 con píxeles). Configurable por env. |
 
 ---

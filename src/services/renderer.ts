@@ -3,7 +3,13 @@ import { chromium, type Browser } from 'playwright';
 let browserPromise: Promise<Browser> | null = null;
 
 function getBrowser(): Promise<Browser> {
-  browserPromise ??= chromium.launch({ headless: true });
+  browserPromise ??= chromium.launch({
+    headless: true,
+    // Los contenedores pequeños (p. ej. el plan gratuito de Render, 512 MB)
+    // suelen montar /dev/shm con solo 64 MB: de sobra para que Chromium se
+    // caiga a media renderización. Con este flag usa /tmp en su lugar.
+    args: ['--disable-dev-shm-usage'],
+  });
   return browserPromise;
 }
 
