@@ -37,6 +37,10 @@
 
 * { box-sizing: border-box; }
 
+/* Lo oculto, oculto: varias clases de la UI declaran `display` y cualquier
+   regla de autor gana a la del navegador para [hidden]. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: 'Poppins', system-ui, sans-serif;
@@ -71,6 +75,7 @@ body {
   padding-left: 20px;
 }
 .brand-app strong { color: var(--cyan-300); font-weight: 600; }
+#btn-logout { margin-left: auto; }
 
 main { max-width: 1080px; margin: 0 auto; padding: 40px 24px 96px; }
 
@@ -159,6 +164,33 @@ input[type='number'] { width: 90px; }
   display: inline-block;
 }
 .ghost:hover { border-color: var(--cyan-300); }
+
+/* ─── Pantalla de acceso ─── */
+.login-main { max-width: 420px; margin: 0 auto; padding: 12vh 24px; }
+.login-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.login-card h1 { font-size: 24px; margin: 0; }
+.login-card .lede { font-size: 14px; margin: 0 0 8px; }
+.login-card label { font-size: 13px; color: var(--text-muted); }
+.login-card input[type='password'] {
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--navy-800);
+  border: 1px solid var(--blue-700);
+  border-radius: 8px;
+  padding: 11px 12px;
+}
+.login-card input:focus { border-color: var(--cyan-500); outline: none; }
+.login-card .cta { margin-top: 8px; }
+.login-card .error { font-size: 13px; margin: 4px 0 0; }
 
 /* ─── Vista de job ─── */
 .job-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
@@ -304,7 +336,6 @@ input[type='number'] { width: 90px; }
   flex-direction: column;
   background: linear-gradient(180deg, var(--navy-950) 0%, var(--navy-900) 100%);
 }
-.editor[hidden] { display: none; }
 .ed-bar, .ed-error, .ed-foot { flex: none; }
 
 .ed-bar {
@@ -382,7 +413,6 @@ input[type='number'] { width: 90px; }
   padding: 12px 14px 14px;
   z-index: 60;
 }
-.ed-prompt[hidden] { display: none; }
 .ed-prompt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .ed-prompt-target {
   flex: 1;

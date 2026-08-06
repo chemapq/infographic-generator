@@ -347,5 +347,21 @@
     }
   });
 
+  /* ───────────── sesión ───────────── */
+  // El botón de salir solo aparece si esta instalación tiene login.
+  (async () => {
+    try {
+      const status = await (await fetch('/api/auth/status')).json();
+      if (status.enabled && status.authenticated) $('btn-logout').hidden = false;
+    } catch {
+      // Sin respuesta del servidor no se muestra nada: no es información crítica.
+    }
+  })();
+
+  $('btn-logout').addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    location.reload();
+  });
+
   route();
 })();

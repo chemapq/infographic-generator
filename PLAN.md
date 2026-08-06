@@ -15,7 +15,7 @@
 | Motor IA | **API directa de Anthropic** (Messages API con visión). La app controla el bucle: pasadas y consumo predecibles. |
 | Editabilidad | **Por fases.** Fase 1: HTML/SVG limpio y semántico + edición vía prompt. Fase 2: señalar un elemento en la web y pedirle el cambio a Claude. |
 | Alcance de imágenes | **Vectorizable puro**: texto, formas, iconos, diagramas, gráficos de datos. Fotos/ilustraciones complejas → placeholders marcados para reemplazo manual. |
-| Despliegue | **Local, un usuario** (`npm run dev`). Sin auth. Proyectos persistidos en disco (`output/`). |
+| Despliegue | **Local, un usuario** (`npm run dev`), proyectos persistidos en disco (`output/`). Para desplegarla, `AUTH_PASSWORD` activa una pantalla de login que cubre toda la app; en producción es obligatoria (el servidor no arranca sin ella). |
 | Modelo | `claude-opus-4-8` (visión de alta resolución hasta 2576 px de lado largo, coordenadas 1:1 con píxeles). Configurable por env. |
 
 ---
@@ -159,6 +159,7 @@ Este contrato es lo que hace que "editable" sea real y no solo un screenshot en 
 
 | Método y ruta | Descripción |
 | --- | --- |
+| `POST /api/auth/login` · `/logout` · `GET /status` | Pantalla de login del despliegue (sesión en cookie firmada). |
 | `POST /api/jobs` | Multipart con la imagen (+ opciones: `maxPasses`, notas del usuario). Devuelve `{ jobId }` y arranca el pipeline. |
 | `GET /api/jobs/:id` | Estado del job: pasada actual, scores y uso de tokens. |
 | `GET /api/jobs/:id/events` | **SSE**: progreso en vivo (inicio/fin de pasada, score, discrepancias, texto en streaming). |

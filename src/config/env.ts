@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import path from 'node:path';
 
 // Carga .env si existe (Node >= 20.12). No falla si no está.
@@ -20,6 +21,15 @@ function int(name: string, fallback: number): number {
 export const env = {
   port: int('PORT', 3000),
   nodeEnv: process.env.NODE_ENV ?? 'development',
+  /**
+   * Contraseña de acceso. Definirla activa la pantalla de login; vacía (lo
+   * normal en local) la app se abre directamente. En producción es obligatoria:
+   * el servidor no arranca sin ella.
+   */
+  authPassword: process.env.AUTH_PASSWORD?.trim() ?? '',
+  /** Firma las sesiones. Si no se define, se genera y las sesiones caen al reiniciar. */
+  authSecret: process.env.AUTH_SECRET?.trim() || crypto.randomBytes(32).toString('hex'),
+  authSessionHours: int('AUTH_SESSION_HOURS', 12),
   outputDir: path.resolve(process.cwd(), process.env.OUTPUT_DIR ?? 'output'),
   anthropicModel: process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8',
   maxPasses: int('MAX_PASSES', 5),

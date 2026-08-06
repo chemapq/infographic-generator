@@ -52,10 +52,27 @@ Detalle de implementación: el lienzo es un `<iframe sandbox="allow-same-origin"
 
 Los clics **no** se escuchan dentro del iframe sino en una capa transparente por encima, y el elemento se resuelve con `elementFromPoint`: WebKit (Safari) no despacha eventos DOM en un documento con `sandbox` sin `allow-scripts`, aunque el padre sí pueda leer su DOM. Y el editor se engancha en cuanto existe el DOM del iframe, sin esperar a su evento `load`, que espera también a las Google Fonts del documento generado y con la red lenta dejaba el lienzo visible pero sin responder.
 
+## Login (para desplegar)
+
+En local no hace falta nada: sin `AUTH_PASSWORD` la app se abre directamente. **Al desplegar, define `AUTH_PASSWORD` y toda la herramienta queda detrás de una pantalla de login** — la interfaz, la API, el HTML generado y las capturas de cada job.
+
+```bash
+AUTH_PASSWORD=una-contraseña-larga
+AUTH_SECRET=cadena-aleatoria-y-fija   # sin ella, cada reinicio cierra las sesiones
+AUTH_SESSION_HOURS=12
+```
+
+- **En producción es obligatoria**: con `NODE_ENV=production` y sin `AUTH_PASSWORD`, el servidor no arranca y explica por qué. Así un despliegue no queda abierto por un descuido.
+- La sesión es una cookie `HttpOnly` + `SameSite=Lax` firmada con HMAC; *Cerrar sesión* invalida todos los tokens emitidos, no solo la cookie del navegador.
+- Cinco fallos seguidos bloquean los intentos 30 s, y el doble en cada fallo siguiente hasta 5 minutos.
+- **Sirve por HTTPS.** Por HTTP la contraseña viaja en claro; ponlo detrás de un proxy con certificado o de un túnel con TLS. La cookie se marca `Secure` automáticamente cuando la petición llega por HTTPS.
+- Ojo con dejarlo sin `AUTH_PASSWORD` fuera de tu equipo: el puerto queda accesible para cualquiera que lo alcance, y el arranque lo avisa por consola.
+
 ## API HTTP
 
 | Método y ruta | Descripción |
 | --- | --- |
+| `POST /api/auth/login` | `{ "password": "..." }` → cookie de sesión. `GET /api/auth/status` y `POST /api/auth/logout` completan el trío. |
 | `POST /api/jobs` | Multipart con `image` (+ `maxPasses`, `notes`). Devuelve `{ jobId }` y arranca el pipeline. |
 | `GET /api/jobs/:id` | Estado del job: pasadas, scores y uso de tokens. |
 | `GET /api/jobs/:id/events` | SSE con progreso en vivo (replay incluido). |
@@ -69,17 +86,21 @@ Los clics **no** se escuchan dentro del iframe sino en una capa transparente por
 src/
 ├── index.ts                  # Express + estáticos + rutas
 ├── cli.ts                    # pipeline invocable por script
-├── config/env.ts             # PORT, ANTHROPIC_MODEL, MAX_PASSES, TARGET_SCORE…
-├── api/                      # jobs.router.ts · sse.ts
+├── config/env.ts             # PORT, ANTHROPIC_MODEL, MAX_PASSES, AUTH_*…
+├── api/                      # jobs.router.ts · auth.router.ts · sse.ts
 └── services/
     ├── orchestrator.ts       # bucle generar → renderizar → comparar → refinar
     ├── claude/               # client (caché + uso) · prompts · schemas · analyze · generate · compare
     ├── renderer.ts           # Playwright: HTML → PNG determinista
     ├── differ.ts             # sharp + pixelmatch: score + heatmap
+    ├── auth.ts               # local sin fricción, remoto con contraseña
+    ├── errors.ts             # traduce los fallos a lenguaje llano
+    ├── image.ts              # formato real por los bytes de cabecera
     ├── validator.ts          # contrato: sin JS ni red fuera de Google Fonts
     └── store.ts              # persistencia en output/<jobId>/
 public/
 ├── index.html · styles.css   # UI: subida · progreso · resultado · editor
+├── login.html                # pantalla de acceso (solo desde fuera del equipo)
 ├── app.js                    # subida, SSE, timeline, comparador
 └── editor.js                 # señalar elementos y pedir el cambio a Claude
 ```
