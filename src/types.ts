@@ -51,6 +51,42 @@ export interface JobRecord {
   totalUsage: CallUsage;
   stopReason: string | null;
   error: string | null;
+  /** Dueño del job (cookie `ig_owner`). `null` en jobs anteriores a la galería. */
+  ownerId: string | null;
+  /** Título editable en la galería. Si falta, se usa `originalName` sin extensión. */
+  title?: string;
+}
+
+/** Fila ligera para la galería: sin `spec` ni `passes`, cabe de sobra en una lista. */
+export interface JobSummary {
+  id: string;
+  createdAt: string;
+  /** mtime de job.json: ordena por "última actividad", no solo por creación. */
+  updatedAt: string;
+  title: string;
+  originalName: string;
+  status: JobStatus;
+  width: number;
+  height: number;
+  passCount: number;
+  bestScore: number | null;
+  hasResult: boolean;
+  ownerId: string | null;
+}
+
+export interface GalleryQuery {
+  limit: number;
+  cursor?: string;
+  q?: string;
+  status?: JobStatus | 'all';
+  sort?: 'recent' | 'score';
+  ownerId?: string | null;
+}
+
+export interface GalleryPage {
+  items: JobSummary[];
+  nextCursor: string | null;
+  total: number;
 }
 
 export interface JobEvent {

@@ -2,21 +2,27 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'node:path';
 import { env } from '../config/env.js';
+import { galleryRepository } from '../services/gallery.js';
 import type { IterateTarget } from '../services/claude/prompts.js';
 import { describeUnsupportedImage } from '../services/errors.js';
 import { isSupportedImageKind, sniffImageKind } from '../services/image.js';
 import {
   createJob,
   currentResultPass,
+  forgetJob,
   getJob,
   getJobRecord,
   requestIteration,
   subscribe,
 } from '../services/orchestrator.js';
 import { jobDir, passesDir, readPassFile } from '../services/store.js';
+import { ensureThumb } from '../services/thumbs.js';
 import { openSse } from './sse.js';
 
 export const jobsRouter = Router();
+
+/** Nombre de carpeta de job: los 8 hex de `newJobId()`. */
+const JOB_ID_RE = /^[0-9a-f]{8}$/;
 
 // Sin filtro por tipo MIME: el navegador lo deduce de la extensión y miente a
 // menudo (un HEIC renombrado llega como image/jpeg). El formato real se
@@ -48,7 +54,12 @@ jobsRouter.post('/', upload.single('image'), async (req, res) => {
     ? req.body.notes.trim()
     : undefined;
 
-  const record = await createJob(req.file.buffer, req.file.originalname, { maxPasses, notes });
+  const record = await createJob(
+    req.file.buffer,
+    req.file.originalname,
+    { maxPasses, notes },
+    req.ownerId ?? null,
+  );
   res.status(201).json({ jobId: record.id });
 });
 
@@ -157,4 +168,55 @@ jobsRouter.get('/:id/assets/:file', async (req, res) => {
     return;
   }
   res.sendFile(path.join(jobDir(record.id), path.basename(req.params.file)));
+});
+
+/** GET /api/jobs/:id/thumb — miniatura para la galería, generada a demanda. */
+jobsRouter.get('/:id/thumb', async (req, res) => {
+  const thumb = await ensureThumb(req.params.id);
+  if (!thumb) {
+    res.status(404).json({ error: 'Job no encontrado, o todavía sin ninguna imagen que mostrar.' });
+    return;
+  }
+  res.setHeader('Cache-Control', 'private, max-age=60');
+  res.setHeader('ETag', `"${thumb.mtimeMs}"`);
+  res.type('webp').sendFile(thumb.file);
+});
+
+/** PATCH /api/jobs/:id — { title } renombra el job en la galería. */
+jobsRouter.patch('/:id', async (req, res) => {
+  if (!JOB_ID_RE.test(req.params.id)) {
+    res.status(404).json({ error: 'Job no encontrado' });
+    return;
+  }
+  const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 120) : '';
+  if (!title) {
+    res.status(400).json({ error: 'El título no puede estar vacío.' });
+    return;
+  }
+  const summary = await galleryRepository.rename(req.params.id, title);
+  if (!summary) {
+    res.status(404).json({ error: 'Job no encontrado' });
+    return;
+  }
+  res.json({ id: summary.id, title: summary.title });
+});
+
+/** DELETE /api/jobs/:id — borra el job. 409 si sigue en curso. */
+jobsRouter.delete('/:id', async (req, res) => {
+  if (!JOB_ID_RE.test(req.params.id)) {
+    res.status(404).json({ error: 'Job no encontrado' });
+    return;
+  }
+  const record = await getJobRecord(req.params.id);
+  if (!record) {
+    res.status(404).json({ error: 'Job no encontrado' });
+    return;
+  }
+  if (record.status !== 'done' && record.status !== 'failed') {
+    res.status(409).json({ error: 'El job todavía está en curso: espera a que termine para borrarlo.' });
+    return;
+  }
+  await galleryRepository.remove(req.params.id);
+  forgetJob(req.params.id);
+  res.status(204).end();
 });

@@ -19,6 +19,9 @@
         alt="Awakelab">
     </a>
     <span class="brand-app">Infographic <strong>Generator</strong></span>
+    <a href="#/gallery" id="nav-gallery" class="ghost small nav-gallery">
+      Mis infografías<span id="nav-gallery-count" class="nav-gallery-count" hidden></span>
+    </a>
     <button type="button" id="btn-logout" class="ghost small" hidden>Cerrar sesión</button>
   </header>
 
@@ -54,6 +57,48 @@
         <p id="upload-error" class="error" hidden></p>
       </form>
 
+      <div id="recent-strip" class="recent-strip" hidden>
+        <div class="recent-strip-head">
+          <h2>Recientes</h2>
+          <a href="#/gallery" class="ghost small">Ver todas</a>
+        </div>
+        <div id="recent-grid" class="recent-grid"></div>
+      </div>
+    </section>
+
+    <!-- ═══ Vista: Galería (historial local) ═══ -->
+    <section id="view-gallery" class="view" hidden>
+      <div class="gallery-head">
+        <h1>Mis <span class="hl">infografías</span></h1>
+        <a href="#/" class="cta small">+ Nueva infografía</a>
+      </div>
+
+      <div class="gallery-toolbar">
+        <input type="search" id="gallery-search" placeholder="Buscar por nombre o id…" aria-label="Buscar">
+        <select id="gallery-status" aria-label="Filtrar por estado">
+          <option value="all">Todos los estados</option>
+          <option value="done">Terminados</option>
+          <option value="failed">Fallidos</option>
+        </select>
+        <select id="gallery-sort" aria-label="Ordenar">
+          <option value="recent">Más recientes</option>
+          <option value="score">Mejor score</option>
+        </select>
+      </div>
+
+      <p id="gallery-error" class="error" hidden></p>
+      <div id="gallery-empty" class="gallery-empty" hidden>
+        <p><strong>Todavía no has generado ninguna infografía.</strong></p>
+        <p class="muted">Sube una imagen para empezar.</p>
+        <a href="#/" class="cta small">Generar la primera</a>
+      </div>
+      <div id="gallery-no-results" class="gallery-empty" hidden>
+        <p><strong>Nada coincide con ese filtro.</strong></p>
+        <p class="muted">Prueba a cambiar la búsqueda o el estado.</p>
+      </div>
+
+      <div id="gallery-grid" class="gallery-grid"></div>
+      <button type="button" id="gallery-more" class="ghost" hidden>Cargar más</button>
     </section>
 
     <!-- ═══ Vistas 2 y 3: Progreso + Resultado ═══ -->

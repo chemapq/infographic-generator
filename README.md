@@ -36,6 +36,12 @@ Sin `ANTHROPIC_API_KEY`, el SDK también acepta `ANTHROPIC_AUTH_TOKEN` o un perf
 
 Todo el estado de un trabajo vive en `output/<jobId>/` (imagen original, HTML/captura/diff de cada pasada, `job.json`, `usage.json` con el uso de tokens) y es reabrible tras reiniciar el servidor.
 
+## Galería (historial local)
+
+*Mis infografías* (`#/gallery`, enlace en la cabecera) lista todo lo generado en esta instalación a partir de lo que ya hay en `output/`: miniatura, título, estado, score y nº de pasadas, con buscador, filtro por estado y orden por recencia o score. Desde cada tarjeta se abre el job, se descarga el HTML, se renombra (clic en el título) o se borra (deshabilitado mientras el job sigue en curso).
+
+Es persistencia **local**, sin base de datos: no hay migración que ejecutar, los jobs que ya existían en `output/` aparecen solos. Detalle de diseño y la costura prevista para cuando esto pase a una base de datos global en [PLAN_GALERIA.md](PLAN_GALERIA.md).
+
 ## Editar señalando elementos
 
 En el resultado, *Editar señalando* abre la infografía a pantalla completa. Al pasar el ratón se resaltan los elementos y **al hacer clic en uno** se abre una ventanita con un prompt: escribes el cambio en lenguaje natural y **Claude lo aplica sobre ese elemento**.
@@ -86,6 +92,10 @@ persistente y pasos por host en [DEPLOY.md](DEPLOY.md).
 | `POST /api/jobs/:id/iterate` | `{ "prompt": "...", "target"?: { label, selector, html, text } }` → una pasada más con las instrucciones del usuario, acotada al elemento señalado si se envía `target`. Repetible. |
 | `GET /api/jobs/:id/result` | HTML final (`?pass=n` para versiones anteriores). |
 | `GET /api/jobs/:id/assets/...` | Original, capturas y diffs. |
+| `GET /api/gallery` | Historial de jobs (`?limit&cursor&q&status&sort`). |
+| `GET /api/jobs/:id/thumb` | Miniatura WebP para la galería, generada a demanda. |
+| `PATCH /api/jobs/:id` | `{ "title": "..." }` → renombra el job. |
+| `DELETE /api/jobs/:id` | Borra el job (`409` si sigue en curso). |
 
 ## Estructura
 
@@ -94,12 +104,15 @@ src/
 ├── index.ts                  # Express + estáticos + rutas
 ├── cli.ts                    # pipeline invocable por script
 ├── config/env.ts             # PORT, ANTHROPIC_MODEL, MAX_PASSES, AUTH_*…
-├── api/                      # jobs.router.ts · auth.router.ts · sse.ts
+├── api/                      # jobs.router.ts · gallery.router.ts · auth.router.ts · sse.ts
 └── services/
     ├── orchestrator.ts       # bucle generar → renderizar → comparar → refinar
     ├── claude/               # client (caché + uso) · prompts · schemas · analyze · generate · compare
     ├── renderer.ts           # Playwright: HTML → PNG determinista
     ├── differ.ts             # sharp + pixelmatch: score + heatmap
+    ├── gallery.ts            # historial local: listar, buscar, paginar (ver PLAN_GALERIA.md)
+    ├── thumbs.ts             # miniatura WebP a demanda
+    ├── owner.ts              # cookie ig_owner: agrupa jobs, no controla acceso
     ├── auth.ts               # local sin fricción, remoto con contraseña
     ├── errors.ts             # traduce los fallos a lenguaje llano
     ├── image.ts              # formato real por los bytes de cabecera

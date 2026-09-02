@@ -51,9 +51,19 @@ export async function readPassFile(jobId: string, name: string): Promise<Buffer>
   return fs.readFile(path.join(passesDir(jobId), path.basename(name)));
 }
 
+export function jobJsonPath(jobId: string): string {
+  return path.join(jobDir(jobId), 'job.json');
+}
+
+/** Escritura atómica (tmp + rename): la galería nunca ve un job.json a medias. */
+async function writeFileAtomic(file: string, content: string): Promise<void> {
+  const tmp = `${file}.${randomUUID().slice(0, 8)}.tmp`;
+  await fs.writeFile(tmp, content);
+  await fs.rename(tmp, file);
+}
+
 export async function saveJob(job: JobRecord): Promise<void> {
-  const file = path.join(jobDir(job.id), 'job.json');
-  await fs.writeFile(file, JSON.stringify(job, null, 2));
+  await writeFileAtomic(jobJsonPath(job.id), JSON.stringify(job, null, 2));
   // Log de uso de tokens separado, tal y como pide el plan (§5).
   const usageFile = path.join(jobDir(job.id), 'usage.json');
   await fs.writeFile(
@@ -71,9 +81,14 @@ export async function saveJob(job: JobRecord): Promise<void> {
 
 export async function readJob(jobId: string): Promise<JobRecord | null> {
   try {
-    const raw = await fs.readFile(path.join(jobDir(jobId), 'job.json'), 'utf8');
+    const raw = await fs.readFile(jobJsonPath(jobId), 'utf8');
     return JSON.parse(raw) as JobRecord;
   } catch {
     return null;
   }
+}
+
+/** Borra la carpeta completa de un job. Irreversible: solo se llama tras validar su estado. */
+export async function deleteJobDir(jobId: string): Promise<void> {
+  await fs.rm(jobDir(jobId), { recursive: true, force: true });
 }

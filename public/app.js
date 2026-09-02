@@ -5,6 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const viewUpload = $('view-upload');
   const viewJob = $('view-job');
+  const viewGallery = $('view-gallery');
 
   const esc = (value) =>
     String(value).replace(/[&<>"']/g, (c) => ({
@@ -28,14 +29,22 @@
   let currentJobId = null;
 
   function route() {
-    const match = location.hash.match(/^#\/job\/([\w-]+)/);
-    if (match) {
-      showJob(match[1]);
+    const jobMatch = location.hash.match(/^#\/job\/([\w-]+)/);
+    if (jobMatch) {
+      showJob(jobMatch[1]);
+      return;
+    }
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    currentJobId = null;
+    viewJob.hidden = true;
+    if (location.hash === '#/gallery') {
+      viewUpload.hidden = true;
+      viewGallery.hidden = false;
+      loadGallery(true);
     } else {
-      if (eventSource) { eventSource.close(); eventSource = null; }
-      currentJobId = null;
-      viewJob.hidden = true;
+      viewGallery.hidden = true;
       viewUpload.hidden = false;
+      loadRecentStrip();
     }
   }
   window.addEventListener('hashchange', route);
@@ -130,6 +139,7 @@
 
   function showJob(jobId) {
     viewUpload.hidden = true;
+    viewGallery.hidden = true;
     viewJob.hidden = false;
     if (currentJobId === jobId) return;
     currentJobId = jobId;
@@ -346,6 +356,202 @@
       btn.disabled = false;
     }
   });
+
+  /* ───────────── galería (historial local) ───────────── */
+  let galleryCursor = null;
+  let galleryLoading = false;
+  let gallerySearchTimer = null;
+
+  const RTF = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
+  const RELATIVE_UNITS = [
+    ['year', 31536000], ['month', 2592000], ['day', 86400],
+    ['hour', 3600], ['minute', 60], ['second', 1],
+  ];
+
+  function relativeTime(iso) {
+    const diffSec = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+    for (const [unit, secs] of RELATIVE_UNITS) {
+      if (Math.abs(diffSec) >= secs || unit === 'second') return RTF.format(-Math.round(diffSec / secs), unit);
+    }
+    return '';
+  }
+
+  function updateGalleryCount(total) {
+    const badge = $('nav-gallery-count');
+    badge.textContent = String(total);
+    badge.hidden = false;
+  }
+
+  function galleryCardHtml(item) {
+    const statusClass = item.status === 'done' ? 'done' : item.status === 'failed' ? 'failed' : '';
+    const inProgress = item.status !== 'done' && item.status !== 'failed';
+    return `<article class="gallery-card" data-id="${esc(item.id)}">
+      <a class="gallery-thumb" href="#/job/${esc(item.id)}">
+        <img src="/api/jobs/${esc(item.id)}/thumb" loading="lazy" alt="Miniatura de ${esc(item.title)}">
+        <span class="chip gallery-chip ${statusClass}">${esc(STATUS_LABEL[item.status] || item.status)}</span>
+      </a>
+      <div class="gallery-body">
+        <h3 class="gallery-title" tabindex="0" title="Haz clic para renombrar">${esc(item.title)}</h3>
+        <div class="gallery-meta">
+          <span>${esc(relativeTime(item.updatedAt))}</span>
+          ${item.bestScore != null ? `<span>· <span class="score">${Number(item.bestScore).toFixed(1)}%</span></span>` : ''}
+          <span>· ${item.passCount} pasada${item.passCount === 1 ? '' : 's'}</span>
+        </div>
+        <div class="gallery-actions">
+          ${item.hasResult ? `<a class="ghost small" href="/api/jobs/${esc(item.id)}/result" download>Descargar</a>` : '<span></span>'}
+          <button type="button" class="ghost small danger" data-action="delete" data-id="${esc(item.id)}"
+            ${inProgress ? 'disabled title="Espera a que termine para borrarlo"' : ''}>Borrar</button>
+        </div>
+      </div>
+    </article>`;
+  }
+
+  function galleryQueryParams(cursor) {
+    const params = new URLSearchParams();
+    params.set('limit', '24');
+    if (cursor) params.set('cursor', cursor);
+    const q = $('gallery-search').value.trim();
+    if (q) params.set('q', q);
+    const status = $('gallery-status').value;
+    if (status !== 'all') params.set('status', status);
+    params.set('sort', $('gallery-sort').value);
+    return params;
+  }
+
+  function updateGalleryEmptyStates(page) {
+    const hasFilters = $('gallery-search').value.trim() !== '' || $('gallery-status').value !== 'all';
+    const empty = page.items.length === 0 && !galleryCursor;
+    $('gallery-empty').hidden = !(empty && !hasFilters);
+    $('gallery-no-results').hidden = !(empty && hasFilters);
+  }
+
+  async function loadGallery(reset) {
+    if (galleryLoading) return;
+    galleryLoading = true;
+    if (reset) {
+      galleryCursor = null;
+      $('gallery-grid').innerHTML = '';
+    }
+    $('gallery-error').hidden = true;
+    try {
+      const res = await fetch(`/api/gallery?${galleryQueryParams(galleryCursor)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const page = await res.json();
+      galleryCursor = page.nextCursor;
+      $('gallery-grid').insertAdjacentHTML('beforeend', page.items.map(galleryCardHtml).join(''));
+      $('gallery-more').hidden = !page.nextCursor;
+      // El contador de la topbar es el total sin filtrar: con una búsqueda o
+      // un filtro de estado activos, page.total ya no lo representa.
+      const hasFilters = $('gallery-search').value.trim() !== '' || $('gallery-status').value !== 'all';
+      if (!hasFilters) updateGalleryCount(page.total);
+      if (reset) updateGalleryEmptyStates(page);
+    } catch {
+      $('gallery-error').hidden = false;
+      $('gallery-error').textContent =
+        'No se pudo cargar la galería. Comprueba que el servidor sigue en marcha.';
+    } finally {
+      galleryLoading = false;
+    }
+  }
+
+  function startRename(titleEl) {
+    const id = titleEl.closest('.gallery-card').dataset.id;
+    const original = titleEl.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'gallery-title-input';
+    input.maxLength = 120;
+    input.value = original;
+    titleEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let settled = false;
+    async function commit() {
+      if (settled) return;
+      settled = true;
+      const next = input.value.trim();
+      if (next && next !== original) {
+        try {
+          const res = await fetch(`/api/jobs/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: next }),
+          });
+          if (!res.ok) throw new Error();
+          titleEl.textContent = next;
+        } catch {
+          titleEl.textContent = original;
+        }
+      }
+      input.replaceWith(titleEl);
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { settled = true; input.replaceWith(titleEl); }
+    });
+  }
+
+  async function deleteGalleryJob(id) {
+    if (!confirm('¿Borrar esta infografía? No se puede deshacer.')) return;
+    try {
+      const res = await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || `HTTP ${res.status}`);
+      }
+      loadGallery(true);
+    } catch (err) {
+      $('gallery-error').hidden = false;
+      $('gallery-error').textContent = err.message || 'No se pudo borrar la infografía.';
+    }
+  }
+
+  $('gallery-grid').addEventListener('click', (e) => {
+    const title = e.target.closest('.gallery-title');
+    if (title) { startRename(title); return; }
+    const del = e.target.closest('[data-action="delete"]');
+    if (del && !del.disabled) deleteGalleryJob(del.dataset.id);
+  });
+  $('gallery-grid').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.classList.contains('gallery-title')) {
+      e.preventDefault();
+      startRename(e.target);
+    }
+  });
+  $('gallery-search').addEventListener('input', () => {
+    clearTimeout(gallerySearchTimer);
+    gallerySearchTimer = setTimeout(() => loadGallery(true), 250);
+  });
+  $('gallery-status').addEventListener('change', () => loadGallery(true));
+  $('gallery-sort').addEventListener('change', () => loadGallery(true));
+  $('gallery-more').addEventListener('click', () => loadGallery(false));
+
+  /* ───────────── tira de recientes (vista de subida) ───────────── */
+  async function loadRecentStrip() {
+    try {
+      const res = await fetch('/api/gallery?limit=6&sort=recent');
+      if (!res.ok) return;
+      const page = await res.json();
+      updateGalleryCount(page.total);
+      if (page.items.length === 0) {
+        $('recent-strip').hidden = true;
+        return;
+      }
+      $('recent-grid').innerHTML = page.items
+        .map(
+          (item) => `<a class="recent-card" href="#/job/${esc(item.id)}">
+            <img src="/api/jobs/${esc(item.id)}/thumb" loading="lazy" alt="Miniatura de ${esc(item.title)}">
+            <div class="recent-card-title">${esc(item.title)}</div>
+          </a>`,
+        )
+        .join('');
+      $('recent-strip').hidden = false;
+    } catch {
+      // silencioso: la tira de recientes no es información crítica
+    }
+  }
 
   /* ───────────── sesión ───────────── */
   // El botón de salir solo aparece si esta instalación tiene login.

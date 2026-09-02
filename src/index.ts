@@ -1,10 +1,12 @@
 import express from 'express';
 import path from 'node:path';
 import { authRouter } from './api/auth.router.js';
+import { galleryRouter } from './api/gallery.router.js';
 import { jobsRouter } from './api/jobs.router.js';
 import { env } from './config/env.js';
 import { authEnabled, isAuthenticated } from './services/auth.js';
 import { describeError } from './services/errors.js';
+import { ownerMiddleware } from './services/owner.js';
 import { closeBrowser } from './services/renderer.js';
 
 const app = express();
@@ -36,7 +38,9 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static(path.resolve(process.cwd(), 'public')));
+app.use('/api', ownerMiddleware);
 app.use('/api/jobs', jobsRouter);
+app.use('/api/gallery', galleryRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, model: env.anthropicModel, maxPasses: env.maxPasses });

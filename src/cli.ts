@@ -18,9 +18,12 @@ if (!imagePath) {
 const image = await fs.readFile(path.resolve(imagePath));
 const maxPasses = maxPassesArg ? Number.parseInt(maxPassesArg, 10) : undefined;
 
-const record = await createJob(image, path.basename(imagePath), {
-  maxPasses: maxPasses && !Number.isNaN(maxPasses) ? maxPasses : 5,
-});
+const record = await createJob(
+  image,
+  path.basename(imagePath),
+  { maxPasses: maxPasses && !Number.isNaN(maxPasses) ? maxPasses : 5 },
+  null,
+);
 console.log(`Job ${record.id} creado (${record.width}x${record.height}). Ejecutando pipeline…`);
 
 const job = await getJob(record.id);

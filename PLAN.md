@@ -166,14 +166,19 @@ Este contrato es lo que hace que "editable" sea real y no solo un screenshot en 
 | `POST /api/jobs/:id/iterate` | Body `{ prompt, target? }` → iteración dirigida por el usuario; con `target` (elemento señalado) el cambio se acota a él. Repetible. |
 | `GET /api/jobs/:id/result` | HTML final (y `?pass=n` para versiones anteriores). |
 | `GET /api/jobs/:id/assets/*` | Original, capturas y diffs de cada pasada (para el side-by-side de la UI). |
+| `GET /api/gallery` | Historial de jobs de esta instalación (`limit`, `cursor`, `q`, `status`, `sort`). Detalle en [PLAN_GALERIA.md](PLAN_GALERIA.md). |
+| `GET /api/jobs/:id/thumb` | Miniatura WebP del job, generada a demanda. |
+| `PATCH /api/jobs/:id` | Body `{ title }` → renombra el job en la galería. |
+| `DELETE /api/jobs/:id` | Borra el job (`409` si sigue en curso). |
 
 ---
 
 ## 7. UI web (fase 1) — `public/`
 
-Estática (HTML + CSS + JS vanilla, sin build), servida por Express. Tres vistas:
+Estática (HTML + CSS + JS vanilla, sin build), servida por Express. Vistas:
 
-1. **Subida**: drag & drop de la imagen, opciones (nº máx. de pasadas), botón "Generar".
+1. **Subida**: drag & drop de la imagen, opciones (nº máx. de pasadas), botón "Generar", y
+   una tira con las últimas infografías generadas enlazando a la galería.
 2. **Progreso**: timeline de pasadas en vivo (SSE): miniatura del render, score, lista de
    discrepancias detectadas.
 3. **Resultado**: original vs resultado lado a lado con **slider de superposición**,
@@ -182,6 +187,9 @@ Estática (HTML + CSS + JS vanilla, sin build), servida por Express. Tres vistas
 4. **Editor por prompt** (superpuesto): la infografía a tamaño completo en un
    `<iframe sandbox="allow-same-origin">` del mismo origen; la app lee su DOM para resaltar
    el elemento bajo el puntero y, al hacer clic, abre la ventanita de prompt anclada a él.
+5. **Galería** (`#/gallery`): historial local de infografías generadas — buscador, filtro por
+   estado, orden por recencia o score, renombrar y borrar. Diseño completo en
+   [PLAN_GALERIA.md](PLAN_GALERIA.md).
 
 **Identidad visual de la herramienta** (marca Awakelab 2026 — aplica a la UI de la app,
 *no* a las infografías generadas, que respetan la paleta de su imagen original):
@@ -207,6 +215,7 @@ src/
 │   └── env.ts                # PORT, ANTHROPIC_API_KEY, MODEL, MAX_PASSES, TARGET_SCORE…
 ├── api/
 │   ├── jobs.router.ts        # endpoints de §6
+│   ├── gallery.router.ts     # GET /api/gallery — historial local
 │   └── sse.ts                # helper de Server-Sent Events
 └── services/
     ├── orchestrator.ts       # máquina de estados del job (bucle de pasadas)
@@ -218,6 +227,9 @@ src/
     │   └── compare.ts        # veredicto estructurado de comparación
     ├── renderer.ts           # Playwright: HTML → PNG determinista
     ├── differ.ts             # sharp + pixelmatch: score + heatmap
+    ├── gallery.ts             # GalleryRepository — listado/búsqueda/paginación (ver PLAN_GALERIA.md)
+    ├── thumbs.ts              # miniatura WebP a demanda para la galería
+    ├── owner.ts               # cookie ig_owner: agrupa jobs, no controla acceso
     └── store.ts              # persistencia en output/<jobId>/
 ```
 

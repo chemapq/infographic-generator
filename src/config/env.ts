@@ -40,4 +40,13 @@ export const env = {
   maxImageEdge: 2576,
   /** Lado largo máximo (px) de las capturas intermedias enviadas a Claude. */
   intermediateImageEdge: 1600,
+  /**
+   * Alcance de la galería: `all` lista todos los jobs de la instalación (lo
+   * correcto sin usuarios reales, y lo que hace visible el historial previo
+   * a la cookie de dueño); `owner` filtra por la cookie `ig_owner`.
+   */
+  galleryScope: (process.env.GALLERY_SCOPE ?? 'all') as 'all' | 'owner',
+  galleryPageSize: int('GALLERY_PAGE_SIZE', 24),
+  /** Ancho (px) de las miniaturas generadas para la galería. */
+  thumbWidth: int('THUMB_WIDTH', 480),
 } as const;

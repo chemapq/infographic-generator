@@ -72,6 +72,7 @@ export async function createJob(
   image: Buffer,
   originalName: string,
   options: JobOptions,
+  ownerId: string | null,
 ): Promise<JobRecord> {
   // Preprocesado con sharp: orientación EXIF y <= 2576 px de lado largo.
   const normalized = await sharp(image)
@@ -98,6 +99,7 @@ export async function createJob(
     totalUsage: emptyUsage(),
     stopReason: null,
     error: null,
+    ownerId,
   };
 
   const job: ActiveJob = {
@@ -133,6 +135,14 @@ export async function getJob(jobId: string): Promise<ActiveJob | null> {
 
 export async function getJobRecord(jobId: string): Promise<JobRecord | null> {
   return (await getJob(jobId))?.record ?? null;
+}
+
+/**
+ * Saca un job del `Map` en memoria tras borrar su carpeta: sin esto, `getJob`
+ * lo seguiría sirviendo desde memoria como si su directorio siguiera existiendo.
+ */
+export function forgetJob(jobId: string): void {
+  jobs.delete(jobId);
 }
 
 export function subscribe(job: ActiveJob): { replay: JobEvent[]; emitter: EventEmitter } {
