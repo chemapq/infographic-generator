@@ -13,10 +13,12 @@ import {
   getJob,
   getJobRecord,
   requestIteration,
+  requestTextEdit,
   subscribe,
 } from '../services/orchestrator.js';
 import { jobDir, passesDir, readPassFile } from '../services/store.js';
 import { ensureThumb } from '../services/thumbs.js';
+import type { TextEdit } from '../types.js';
 import { openSse } from './sse.js';
 
 export const jobsRouter = Router();
@@ -122,6 +124,62 @@ jobsRouter.post('/:id/iterate', async (req, res) => {
 
   try {
     const record = await requestIteration(req.params.id, prompt, target);
+    res.status(202).json({ jobId: record.id, queued: true });
+  } catch (error) {
+    res.status(409).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+const MAX_TEXT_EDITS = 200;
+const MAX_TEXT_EDIT_LENGTH = 2000;
+
+/** Valida el cuerpo de POST /:id/text-edit; null si no cumple el contrato. */
+function parseTextEdits(body: unknown): TextEdit[] | null {
+  if (!body || typeof body !== 'object' || !Array.isArray((body as { edits?: unknown }).edits)) {
+    return null;
+  }
+  const raw = (body as { edits: unknown[] }).edits;
+  if (raw.length === 0 || raw.length > MAX_TEXT_EDITS) return null;
+
+  const edits: TextEdit[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') return null;
+    const { selector, nodeIndex, before, after } = item as Record<string, unknown>;
+    if (typeof selector !== 'string' || selector.trim() === '') return null;
+    if (typeof nodeIndex !== 'number' || !Number.isInteger(nodeIndex) || nodeIndex < 0) return null;
+    if (typeof before !== 'string' || before.length > MAX_TEXT_EDIT_LENGTH) return null;
+    if (typeof after !== 'string' || after.length > MAX_TEXT_EDIT_LENGTH) return null;
+    edits.push({ selector, nodeIndex, before, after });
+  }
+  return edits;
+}
+
+/**
+ * POST /api/jobs/:id/text-edit — cambios de texto aplicados a mano, sin
+ * pasar por Claude. `basePass` es la pasada que se estaba editando: si ya no
+ * es la que se muestra en el resultado, se rechaza aquí mismo con 409. Que
+ * algún `before` ya no coincida con el HTML real solo se sabe al aplicar los
+ * cambios, así que ese caso llega más tarde como fallo de la pasada (SSE /
+ * `GET /:id`), igual que un `iterate` fallido.
+ */
+jobsRouter.post('/:id/text-edit', async (req, res) => {
+  const edits = parseTextEdits(req.body);
+  if (!edits) {
+    res.status(400).json({
+      error:
+        `Falta "edits" (lista no vacía, máx. ${MAX_TEXT_EDITS}) con {selector, nodeIndex, before, after} ` +
+        `y textos de hasta ${MAX_TEXT_EDIT_LENGTH} caracteres.`,
+    });
+    return;
+  }
+  const basePass = Number.parseInt(String(req.body?.basePass ?? ''), 10);
+  if (Number.isNaN(basePass)) {
+    res.status(400).json({ error: 'Falta el campo "basePass" (número de la pasada que se está editando).' });
+    return;
+  }
+
+  try {
+    const record = await requestTextEdit(req.params.id, basePass, edits);
     res.status(202).json({ jobId: record.id, queued: true });
   } catch (error) {
     res.status(409).json({ error: error instanceof Error ? error.message : String(error) });

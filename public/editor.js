@@ -1,35 +1,56 @@
 /*
- * Editor por prompt: señalar un elemento y pedirle el cambio a Claude.
+ * Editor superpuesto con dos modos, conmutables sin cerrar el lienzo:
+ *
+ *  - «Pedir cambios a la IA»: señalar un elemento y pedirle el cambio a
+ *    Claude (POST /api/jobs/:id/iterate). Comportamiento original.
+ *  - «Editar textos»: señalar un nodo de texto y reescribirlo a mano, sin
+ *    ninguna llamada a Claude (POST /api/jobs/:id/text-edit). Gratis e
+ *    instantáneo para erratas o cambios de dato.
  *
  * El HTML de la pasada se sirve desde el mismo origen, así que se carga en un
  * <iframe sandbox="allow-same-origin"> (sin allow-scripts: el documento no
- * ejecuta JS) y esta página resalta y selecciona sus elementos leyendo su DOM.
- * Del elemento señalado se extrae su contexto (etiqueta, selector, markup y
- * texto) y se envía junto al prompt a POST /api/jobs/:id/iterate, que produce
- * una pasada más del job. Nada se edita en el navegador: los cambios los hace
- * Claude sobre el HTML.
+ * ejecuta JS) y esta página resalta y edita sus elementos leyendo y
+ * escribiendo directamente su DOM.
+ *
+ * Los clics se recogen en la capa `#ed-hit` del documento padre, no dentro
+ * del iframe: en WebKit un documento con `sandbox` sin `allow-scripts` no
+ * despacha eventos DOM a los listeners que ponga el padre (en Chromium sí),
+ * y el editor se quedaba mudo. `elementFromPoint`/`caretRangeFromPoint` sí
+ * funcionan en ambos, así que el elemento o el nodo de texto se resuelve por
+ * coordenadas. Por lo mismo, el modo texto tampoco escribe nada dentro del
+ * iframe con el teclado: se teclea en la tarjeta del documento padre y el
+ * valor se asigna al `nodeValue` del nodo desde fuera.
  */
 (() => {
   'use strict';
 
   const $ = (id) => document.getElementById(id);
   const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
+  const clip = (text, max) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
   /* ───────────── estado ───────────── */
   let job = null;        // { id, width, height }
   let passN = null;      // pasada que se está mostrando
   let doc = null;        // documento del iframe
   let win = null;
-  let selected = null;
+  let mode = 'prompt';   // 'prompt' | 'text'
+  let selected = null;   // elemento señalado (modo prompt)
   let selector = null;   // selector del elemento señalado (para reencontrarlo)
+  let textNodes = [];    // nodos de texto descubiertos en la pasada actual (modo texto)
+  let selectedText = null; // registro de textNodes abierto en la tarjeta
+  let hoveredText = null;
+  let lastTextIndex = -1; // último índice visitado, para que Tab siga por donde iba tras un «Hecho»
+  let openValue = '';    // valor del texto seleccionado al abrir su tarjeta (para Esc/⌘Z)
+  let undoStack = [];    // [{ record, previousValue }] — ⌘Z del modo texto
+  let highlightAll = false;
   let scale = 1;
   let fitMode = true;
-  let busy = false;      // hay una petición en curso con Claude
+  let busy = false;      // hay una petición en curso (a Claude o de guardado de textos)
   let passCount = 0;     // nº de pasadas conocidas del job
   let waitingFor = null; // nº de pasadas al enviar la petición: al superarlo, listo
   let busySince = 0;
   let readyTimer = null; // sondeo del documento del iframe
-  let pollTimer = null;  // sondeo del job mientras Claude trabaja
+  let pollTimer = null;  // sondeo del job mientras se procesa la petición
 
   const ui = {};
   function cacheUi() {
@@ -46,13 +67,32 @@
       sel: $('ed-sel'),
       selLabel: $('ed-sel-label'),
       zoomLabel: $('ed-zoom-label'),
+      global: $('ed-global'),
+      modePromptBtn: $('ed-mode-prompt'),
+      modeTextBtn: $('ed-mode-text'),
+      textHighlight: $('ed-text-highlight'),
+      textCounter: $('ed-text-counter'),
+      textDiscard: $('ed-text-discard'),
+      textSave: $('ed-text-save'),
+      textAll: $('ed-text-all'),
+      textEdited: $('ed-text-edited'),
+      textHover: $('ed-text-hover'),
+      textSel: $('ed-text-sel'),
+      footPrompt: $('ed-foot-prompt'),
+      footText: $('ed-foot-text'),
       prompt: $('ed-prompt'),
       promptTarget: $('ed-prompt-target'),
+      modePromptBody: $('ed-mode-prompt-body'),
+      modeTextBody: $('ed-mode-text-body'),
       promptContext: $('ed-prompt-context'),
       promptInput: $('ed-prompt-input'),
       promptSend: $('ed-prompt-send'),
       promptParent: $('ed-prompt-parent'),
       promptStatus: $('ed-prompt-status'),
+      textOriginal: $('ed-text-original'),
+      textValue: $('ed-text-value'),
+      textRestore: $('ed-text-restore'),
+      textDone: $('ed-text-done'),
     });
   }
 
@@ -63,6 +103,12 @@
     passN = options.pass;
     selected = null;
     selector = null;
+    textNodes = [];
+    selectedText = null;
+    hoveredText = null;
+    lastTextIndex = -1;
+    undoStack = [];
+    highlightAll = false;
     busy = false;
     passCount = options.passCount ?? 0;
     waitingFor = null;
@@ -73,6 +119,8 @@
     document.body.style.overflow = 'hidden';
     showNotice(null);
     hidePrompt();
+    mode = null; // fuerza a setMode() a aplicar todo el estado visual, aunque coincida con la sesión anterior
+    setMode(options.mode === 'text' ? 'text' : 'prompt');
     loadPass(passN);
   }
 
@@ -91,6 +139,11 @@
     doc = null;
     win = null;
     selected = null;
+    selectedText = null;
+    hoveredText = null;
+    lastTextIndex = -1;
+    textNodes = [];
+    undoStack = [];
     job = null;
   }
 
@@ -100,13 +153,34 @@
 
   /**
    * Aviso en la barra superior. Vive fuera de la ventanita de prompt: cuando
-   * Claude aplica un cambio, el lienzo se recarga y la ventanita se reinicia,
+   * se aplica un cambio, el lienzo se recarga y la ventanita se reinicia,
    * pero el resultado debe seguir a la vista.
    */
   function showNotice(message, kind) {
     ui.error.hidden = !message;
     ui.error.className = kind === 'ok' ? 'ed-error is-ok' : 'ed-error error';
     if (message) ui.error.textContent = message;
+  }
+
+  /* ───────────── conmutador de modo ───────────── */
+  function setMode(next) {
+    if (mode === next) return;
+    if (mode === 'text' && selectedText) finishTextEdit();
+    if (mode === 'prompt' && selected) clearSelection();
+    mode = next;
+    ui.modePromptBtn.classList.toggle('is-active', mode === 'prompt');
+    ui.modePromptBtn.setAttribute('aria-selected', String(mode === 'prompt'));
+    ui.modeTextBtn.classList.toggle('is-active', mode === 'text');
+    ui.modeTextBtn.setAttribute('aria-selected', String(mode === 'text'));
+    ui.global.hidden = mode !== 'prompt';
+    ui.textHighlight.hidden = mode !== 'text';
+    ui.footPrompt.hidden = mode !== 'prompt';
+    ui.footText.hidden = mode !== 'text';
+    ui.hover.hidden = true;
+    hoveredText = null;
+    hidePrompt();
+    updateTextCounter();
+    syncTextOverlays();
   }
 
   function loadPass(n) {
@@ -170,16 +244,22 @@
     doc = candidate;
     win = ui.frame.contentWindow;
     attach();
+    collectTextNodes();
+    selectedText = null;
+    hoveredText = null;
+    lastTextIndex = -1;
+    undoStack = [];
     layout();
     ui.root.classList.remove('is-loading');
     ui.root.dataset.ready = '1';
     ui.pass.textContent = `Pasada ${passN} · lienzo ${job.width}×${job.height}`;
     // Tras un cambio aplicado, se vuelve a señalar el mismo elemento si sigue ahí.
-    if (selector) {
+    if (mode === 'prompt' && selector) {
       const again = doc.querySelector(selector);
       if (again) select(again);
       else clearSelection();
     }
+    updateTextCounter();
   }
 
   /** `load`: ya están todos los recursos; las fuentes pueden mover las medidas. */
@@ -192,8 +272,13 @@
     if (candidate !== doc) useDocument(candidate);
     else {
       layout();
-      syncOverlays();
+      refreshOverlays();
     }
+  }
+
+  function refreshOverlays() {
+    syncOverlays();
+    syncTextOverlays();
   }
 
   /* ───────────── señalar sobre el lienzo ───────────── */
@@ -216,21 +301,30 @@
     ui.hit.removeEventListener('click', onHitClick);
   }
 
+  /** Convierte coordenadas de pantalla a coordenadas nativas del documento del iframe. */
+  function toDocPoint(event) {
+    const rect = ui.hit.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) / scale, y: (event.clientY - rect.top) / scale };
+  }
+
   /** Elemento señalable bajo el puntero (nunca <html> ni <body>). */
   function elementAt(event) {
     if (!doc) return null;
-    const rect = ui.hit.getBoundingClientRect();
-    const x = (event.clientX - rect.left) / scale;
-    const y = (event.clientY - rect.top) / scale;
+    const { x, y } = toDocPoint(event);
     let el = doc.elementFromPoint(x, y);
     while (el && el.nodeType !== 1) el = el.parentNode;
     if (!el || el === doc.documentElement || el === doc.body) return null;
     return el;
   }
 
-  // Señalar sigue funcionando mientras Claude trabaja (solo se bloquea el envío):
-  // así el editor nunca parece muerto por estar esperando.
+  // Señalar sigue funcionando mientras se procesa una petición (solo se
+  // bloquea el envío): así el editor nunca parece muerto por estar esperando.
   function onHitMove(e) {
+    if (mode === 'text') {
+      hoveredText = textNodeAt(e);
+      syncTextOverlays();
+      return;
+    }
     const el = elementAt(e);
     if (!el || el === selected) {
       ui.hover.hidden = true;
@@ -241,10 +335,19 @@
 
   function onHitLeave() {
     ui.hover.hidden = true;
+    if (mode === 'text' && hoveredText) {
+      hoveredText = null;
+      syncTextOverlays();
+    }
   }
 
   function onHitClick(e) {
     e.preventDefault();
+    if (mode === 'text') {
+      const rec = textNodeAt(e);
+      if (rec) selectText(rec);
+      return;
+    }
     const el = elementAt(e);
     if (!el) {
       clearSelection();
@@ -253,7 +356,7 @@
     select(el);
   }
 
-  /* ───────────── selección ───────────── */
+  /* ───────────── selección (modo prompt) ───────────── */
   function select(el) {
     selected = el;
     selector = cssPath(el);
@@ -282,14 +385,14 @@
   function syncOverlays() {
     if (!doc) return;
     ui.hover.hidden = true;
-    if (!selected || !selected.isConnected) {
+    if (mode !== 'prompt' || !selected || !selected.isConnected) {
       ui.sel.hidden = true;
       return;
     }
     drawBox(selected, ui.sel);
     ui.selLabel.textContent = labelOf(selected);
     ui.selLabel.style.fontSize = `${Math.max(9, Math.round(11 / scale))}px`;
-    if (!ui.prompt.hidden) placePrompt();
+    if (mode === 'prompt' && !ui.prompt.hidden) placePrompt();
   }
 
   function labelOf(el) {
@@ -340,19 +443,249 @@
     return value.replace(/([^\w-])/g, '\\$1');
   }
 
-  /* ───────────── ventanita de prompt ───────────── */
+  /* ───────────── modo texto: descubrir y editar nodos de texto ───────────── */
+
+  /** Etiquetas cuyo texto no es contenido visible de la infografía. */
+  const TEXT_SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TITLE', 'NOSCRIPT', 'TEMPLATE']);
+
+  /**
+   * Recorre el documento una vez por pasada y guarda cada nodo de texto no
+   * vacío con su elemento contenedor, su índice entre los `childNodes` de
+   * ese elemento y el valor «original» (el que trae la pasada, antes de
+   * cualquier edición): es lo que viaja como `before` al guardar.
+   */
+  function collectTextNodes() {
+    textNodes = [];
+    if (!doc) return;
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent || TEXT_SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        return node.nodeValue.trim() === '' ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    let node = walker.nextNode();
+    while (node) {
+      const parent = node.parentElement;
+      textNodes.push({
+        node,
+        el: parent,
+        nodeIndex: Array.prototype.indexOf.call(parent.childNodes, node),
+        selector: cssPath(parent),
+        before: node.nodeValue,
+      });
+      node = walker.nextNode();
+    }
+  }
+
+  /** Una caja por línea: un texto partido por el reflow tiene varios rects. */
+  function textRects(node) {
+    if (!doc || !node.isConnected) return [];
+    const range = doc.createRange();
+    range.selectNodeContents(node);
+    return [...range.getClientRects()];
+  }
+
+  /** Nodo de texto bajo el puntero: acierto exacto por caret, o por caja si falla. */
+  function textNodeAt(event) {
+    if (!doc) return null;
+    const { x, y } = toDocPoint(event);
+
+    let hit = null;
+    if (typeof doc.caretRangeFromPoint === 'function') {
+      const range = doc.caretRangeFromPoint(x, y);
+      if (range && range.startContainer.nodeType === 3) hit = range.startContainer;
+    } else if (typeof doc.caretPositionFromPoint === 'function') {
+      const pos = doc.caretPositionFromPoint(x, y);
+      if (pos && pos.offsetNode.nodeType === 3) hit = pos.offsetNode;
+    }
+    if (hit) {
+      const rec = textNodes.find((r) => r.node === hit);
+      if (rec) return rec;
+    }
+
+    // Sin acierto exacto (el punto cayó entre líneas, o el navegador no
+    // soporta ninguna de las dos APIs de caret): se prueba caja a caja.
+    for (const rec of textNodes) {
+      for (const box of textRects(rec.node)) {
+        if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return rec;
+      }
+    }
+    return null;
+  }
+
+  /** Cuántos textos hermanos (mismo elemento contenedor) hay antes de éste, para «fragmento X de Y». */
+  function textFragmentLabel(rec) {
+    const siblings = textNodes.filter((r) => r.el === rec.el);
+    if (siblings.length <= 1) return labelOf(rec.el);
+    return `${labelOf(rec.el)} · fragmento ${siblings.indexOf(rec) + 1} de ${siblings.length}`;
+  }
+
+  function countDirtyTexts() {
+    let n = 0;
+    for (const rec of textNodes) if (rec.node.nodeValue !== rec.before) n++;
+    return n;
+  }
+
+  function collectPendingEdits() {
+    return textNodes
+      .filter((rec) => rec.node.nodeValue !== rec.before)
+      .map((rec) => ({
+        selector: rec.selector,
+        nodeIndex: rec.nodeIndex,
+        before: rec.before,
+        after: rec.node.nodeValue,
+      }));
+  }
+
+  function selectText(rec) {
+    if (selectedText && selectedText !== rec) finishTextEdit();
+    selectedText = rec;
+    lastTextIndex = textNodes.indexOf(rec);
+    openValue = rec.node.nodeValue;
+    hoveredText = null;
+    showTextCard(rec);
+    syncTextOverlays();
+  }
+
+  /** Cierra la tarjeta conservando el cambio (si lo hay) y lo apunta en la pila de deshacer. */
+  function finishTextEdit() {
+    if (selectedText && selectedText.node.nodeValue !== openValue) {
+      undoStack.push({ record: selectedText, previousValue: openValue });
+    }
+    selectedText = null;
+    hidePrompt();
+    syncTextOverlays();
+    updateTextCounter();
+  }
+
+  /** Esc sobre una tarjeta abierta: deshace solo lo tecleado en esta sesión de edición. */
+  function cancelTextEdit() {
+    if (!selectedText) return;
+    selectedText.node.nodeValue = openValue;
+    selectedText = null;
+    hidePrompt();
+    syncTextOverlays();
+    updateTextCounter();
+  }
+
+  function undoLastTextEdit() {
+    const entry = undoStack.pop();
+    if (!entry) return;
+    entry.record.node.nodeValue = entry.previousValue;
+    if (selectedText === entry.record) {
+      openValue = entry.previousValue;
+      ui.textValue.value = entry.previousValue;
+    }
+    syncTextOverlays();
+    updateTextCounter();
+  }
+
+  function discardTextEdits() {
+    if (busy) return;
+    for (const rec of textNodes) rec.node.nodeValue = rec.before;
+    undoStack = [];
+    selectedText = null;
+    hidePrompt();
+    syncTextOverlays();
+    updateTextCounter();
+    showNotice(null);
+  }
+
+  async function saveTextEdits() {
+    if (busy || !job) return;
+    if (selectedText) finishTextEdit();
+    const edits = collectPendingEdits();
+    if (edits.length === 0) return;
+    waitingFor = passCount;
+    setBusy(true, `Guardando ${edits.length} texto${edits.length === 1 ? '' : 's'}…`);
+    showNotice(null);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/text-edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ basePass: passN, edits }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      startPolling();
+    } catch (err) {
+      waitingFor = null;
+      setBusy(false);
+      showNotice(`No se pudieron guardar los cambios: ${err.message}`, 'error');
+    }
+  }
+
+  /* ───────────── overlays del modo texto ───────────── */
+  function renderBoxes(container, rects, extraClass) {
+    container.innerHTML = '';
+    if (!win || rects.length === 0) {
+      container.hidden = true;
+      return;
+    }
+    container.hidden = false;
+    const borderWidth = Math.max(1, 1 / scale);
+    for (const rect of rects) {
+      const box = document.createElement('span');
+      box.className = `ed-box ${extraClass}`;
+      box.style.left = `${rect.left + win.scrollX}px`;
+      box.style.top = `${rect.top + win.scrollY}px`;
+      box.style.width = `${rect.width}px`;
+      box.style.height = `${rect.height}px`;
+      box.style.borderWidth = `${borderWidth}px`;
+      container.appendChild(box);
+    }
+  }
+
+  function syncTextOverlays() {
+    if (!doc || mode !== 'text') {
+      ui.textAll.hidden = true;
+      ui.textEdited.hidden = true;
+      ui.textHover.hidden = true;
+      ui.textSel.hidden = true;
+      return;
+    }
+    renderBoxes(ui.textAll, highlightAll ? textNodes.flatMap((r) => textRects(r.node)) : [], 'ed-box-all');
+    const edited = textNodes.filter((r) => r !== selectedText && r.node.nodeValue !== r.before);
+    renderBoxes(ui.textEdited, edited.flatMap((r) => textRects(r.node)), 'ed-box-edited');
+    renderBoxes(ui.textHover, hoveredText && hoveredText !== selectedText ? textRects(hoveredText.node) : [], 'ed-box-hover');
+    renderBoxes(ui.textSel, selectedText ? textRects(selectedText.node) : [], 'ed-box-sel');
+    if (!ui.prompt.hidden) placePrompt();
+  }
+
+  /* ───────────── ventanita de prompt / tarjeta de texto ───────────── */
   function showPrompt() {
+    ui.modeTextBody.hidden = true;
+    ui.modePromptBody.hidden = false;
     ui.prompt.hidden = false;
-    if (!busy) ui.promptStatus.hidden = true; // no se pisa el «Claude está trabajando…»
+    if (!busy) ui.promptStatus.hidden = true; // no se pisa el «trabajando…»
     ui.promptTarget.textContent = selected ? labelOf(selected) : 'toda la infografía';
     ui.promptParent.hidden = !selected || !selected.parentElement || selected.parentElement === doc.body;
 
     const text = selected ? readableText(selected) : '';
     ui.promptContext.hidden = text === '';
-    if (text) ui.promptContext.textContent = `«${text.slice(0, 140)}${text.length > 140 ? '…' : ''}»`;
+    if (text) ui.promptContext.textContent = `«${clip(text, 140)}»`;
 
     placePrompt();
     ui.promptInput.focus();
+  }
+
+  function showTextCard(rec) {
+    ui.modePromptBody.hidden = true;
+    ui.modeTextBody.hidden = false;
+    ui.prompt.hidden = false;
+    if (!busy) ui.promptStatus.hidden = true;
+    ui.promptTarget.textContent = textFragmentLabel(rec);
+    ui.textOriginal.textContent = `«${clip(rec.before, 140)}»`;
+    ui.textValue.value = rec.node.nodeValue;
+    ui.textValue.disabled = busy;
+    ui.textDone.disabled = busy;
+    ui.textRestore.disabled = busy || rec.node.nodeValue === rec.before;
+    placePrompt();
+    ui.textValue.focus();
+    ui.textValue.select();
   }
 
   // El texto escrito no se borra al cerrar la ventanita: solo al aplicarse el
@@ -362,12 +695,23 @@
     ui.prompt.hidden = true;
   }
 
+  function anchorRect() {
+    if (!doc || !win) return null;
+    if (mode === 'text') {
+      if (!selectedText) return null;
+      return textRects(selectedText.node)[0] ?? null;
+    }
+    if (!selected || !selected.isConnected) return null;
+    return selected.getBoundingClientRect();
+  }
+
   /**
    * Coloca la ventanita FUERA del lienzo, en el margen que quede libre y a la
-   * altura del elemento señalado. Anclarla junto al elemento parecía más
-   * natural, pero tapaba a sus vecinos (un titular tapa su subtítulo) y el
-   * siguiente clic se lo comía la ventanita. Solo si no hay margen a los lados
-   * se coloca encima del lienzo, en el hueco más despejado.
+   * altura del elemento (o nodo de texto) señalado. Anclarla junto al
+   * elemento parecía más natural, pero tapaba a sus vecinos (un titular tapa
+   * su subtítulo) y el siguiente clic se lo comía la ventanita. Solo si no
+   * hay margen a los lados se coloca encima del lienzo, en el hueco más
+   * despejado.
    */
   function placePrompt() {
     const card = ui.prompt.getBoundingClientRect();
@@ -379,13 +723,13 @@
       ui.prompt.style.top = `${clamp(y, m, vh - card.height - m)}px`;
     };
 
-    if (!selected || !selected.isConnected || !doc) {
+    const rect = anchorRect();
+    if (!rect) {
       put((vw - card.width) / 2, vh * 0.25);
       return;
     }
 
     const frameRect = ui.frame.getBoundingClientRect();
-    const rect = selected.getBoundingClientRect();
     const x = frameRect.left + (rect.left - win.scrollX) * scale;
     const y = frameRect.top + (rect.top - win.scrollY) * scale;
     const w = rect.width * scale;
@@ -419,7 +763,7 @@
     put(vw - card.width - m, vh - card.height - m);
   }
 
-  /** Contexto del elemento que viaja con el prompt. */
+  /** Contexto del elemento que viaja con el prompt (modo IA). */
   function targetPayload() {
     if (!selected) return null;
     const html = selected.outerHTML || '';
@@ -452,6 +796,17 @@
     }
   }
 
+  function updateTextCounter() {
+    const n = countDirtyTexts();
+    const inText = mode === 'text';
+    ui.textCounter.hidden = !inText;
+    ui.textCounter.textContent = n === 0 ? 'Sin cambios' : `${n} texto${n === 1 ? '' : 's'} cambiado${n === 1 ? '' : 's'}`;
+    ui.textSave.hidden = !inText;
+    ui.textDiscard.hidden = !inText;
+    ui.textSave.disabled = busy || n === 0;
+    ui.textDiscard.disabled = busy || n === 0;
+  }
+
   function setBusy(value, message) {
     busy = value;
     if (value && busySince === 0) busySince = Date.now();
@@ -462,6 +817,11 @@
     ui.promptInput.disabled = value;
     ui.promptSend.disabled = value;
     ui.promptSend.textContent = value ? 'Aplicando…' : 'Pedir el cambio';
+    ui.textValue.disabled = value;
+    ui.textDone.disabled = value;
+    ui.textRestore.disabled = value || !selectedText || selectedText.node.nodeValue === selectedText.before;
+    ui.textHighlight.disabled = value;
+    updateTextCounter();
     ui.root.classList.toggle('is-busy', value);
     if (message) {
       ui.promptStatus.hidden = false;
@@ -527,7 +887,7 @@
     ui.frame.style.width = `${job.width}px`;
     ui.frame.style.height = `${job.height}px`;
     ui.zoomLabel.textContent = `${Math.round(scale * 100)}%`;
-    syncOverlays();
+    refreshOverlays();
   }
 
   function zoomBy(factor) {
@@ -538,7 +898,7 @@
 
   /* ───────────── progreso del job (lo reenvía app.js) ───────────── */
   function onProgress(data) {
-    if (!busy) return;
+    if (!busy || mode !== 'prompt') return;
     setBusy(true, `Claude está reescribiendo el HTML… ${Number(data.chars).toLocaleString('es')} caracteres`);
   }
 
@@ -551,34 +911,82 @@
       const pass = record.passes[count - 1];
       waitingFor = null;
       setBusy(false);
-      showNotice(
-        `✓ Cambio aplicado en la pasada ${pass.n}` +
-          (pass.score != null ? ` · coincidencia con el original ${Number(pass.score).toFixed(1)}%` : '') +
-          ' · puedes pedir otro cambio o cerrar el editor',
-        'ok',
-      );
+      if (pass.kind === 'manual') {
+        const n = pass.edits ? pass.edits.length : 0;
+        showNotice(
+          `✓ ${n} texto${n === 1 ? '' : 's'} guardado${n === 1 ? '' : 's'} en la pasada ${pass.n} · sin coste de tokens`,
+          'ok',
+        );
+      } else {
+        showNotice(
+          `✓ Cambio aplicado en la pasada ${pass.n}` +
+            (pass.score != null ? ` · coincidencia con el original ${Number(pass.score).toFixed(1)}%` : '') +
+            ' · puedes pedir otro cambio o cerrar el editor',
+          'ok',
+        );
+      }
       loadPass(pass.n);
     } else if (busy && record.status === 'done' && record.error) {
       waitingFor = null;
       setBusy(false);
       showNotice(record.error, 'error');
     } else if (busy && record.status !== 'done') {
-      const label = {
-        iterating: 'reescribiendo el HTML',
-        generating: 'generando',
-        rendering: 'renderizando el resultado',
-        comparing: 'comparando con el original',
-      };
-      setBusy(true, `Claude está trabajando: ${label[record.status] || record.status}…`);
+      if (mode === 'text') {
+        setBusy(true, 'Guardando los cambios de texto…');
+      } else {
+        const label = {
+          iterating: 'reescribiendo el HTML',
+          generating: 'generando',
+          rendering: 'renderizando el resultado',
+          comparing: 'comparando con el original',
+        };
+        setBusy(true, `Claude está trabajando: ${label[record.status] || record.status}…`);
+      }
     }
     passCount = count;
   }
 
   /* ───────────── teclado ───────────── */
+  function stepText(direction) {
+    if (textNodes.length === 0) return;
+    // Sigue por donde iba aunque la tarjeta se cerrara con «Hecho»: sin
+    // `lastTextIndex`, cada Tab tras cerrar la tarjeta reiniciaría siempre en
+    // el primer texto del documento.
+    const currentIdx = selectedText ? textNodes.indexOf(selectedText) : lastTextIndex;
+    if (selectedText) finishTextEdit();
+    const nextIdx = (currentIdx + direction + textNodes.length) % textNodes.length;
+    selectText(textNodes[nextIdx]);
+  }
+
   function onKeyDown(e) {
     if (!isOpen()) return;
-    const inPrompt = e.target && e.target.closest && e.target.closest('#ed-prompt');
 
+    if (mode === 'text') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        undoLastTextEdit();
+        return;
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        stepText(e.shiftKey ? -1 : 1);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && selectedText) {
+        e.preventDefault();
+        finishTextEdit();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (selectedText) cancelTextEdit();
+        else close();
+        return;
+      }
+      return;
+    }
+
+    const inPrompt = e.target && e.target.closest && e.target.closest('#ed-prompt');
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
       void submitPrompt();
@@ -597,12 +1005,43 @@
     cacheUi();
 
     $('ed-close').addEventListener('click', close);
-    $('ed-prompt-close').addEventListener('click', clearSelection);
+    $('ed-prompt-close').addEventListener('click', () => {
+      if (mode === 'text') finishTextEdit();
+      else clearSelection();
+    });
     $('ed-zoom-in').addEventListener('click', () => zoomBy(1.25));
     $('ed-zoom-out').addEventListener('click', () => zoomBy(0.8));
     $('ed-zoom-fit').addEventListener('click', () => { fitMode = true; layout(); });
 
-    $('ed-global').addEventListener('click', () => {
+    ui.modePromptBtn.addEventListener('click', () => setMode('prompt'));
+    ui.modeTextBtn.addEventListener('click', () => setMode('text'));
+
+    ui.textHighlight.addEventListener('click', () => {
+      highlightAll = !highlightAll;
+      ui.textHighlight.classList.toggle('is-active', highlightAll);
+      ui.textHighlight.textContent = highlightAll ? 'Ocultar resaltado' : 'Resaltar textos';
+      syncTextOverlays();
+    });
+    ui.textSave.addEventListener('click', () => void saveTextEdits());
+    ui.textDiscard.addEventListener('click', discardTextEdits);
+    ui.textRestore.addEventListener('click', () => {
+      if (!selectedText) return;
+      selectedText.node.nodeValue = selectedText.before;
+      ui.textValue.value = selectedText.before;
+      ui.textRestore.disabled = true;
+      syncTextOverlays();
+      updateTextCounter();
+    });
+    ui.textDone.addEventListener('click', finishTextEdit);
+    ui.textValue.addEventListener('input', () => {
+      if (!selectedText) return;
+      selectedText.node.nodeValue = ui.textValue.value;
+      ui.textRestore.disabled = selectedText.node.nodeValue === selectedText.before;
+      syncTextOverlays();
+      updateTextCounter();
+    });
+
+    ui.global.addEventListener('click', () => {
       selected = null;
       selector = null;
       ui.sel.hidden = true;

@@ -219,7 +219,14 @@
               `<strong>${esc(d.zone)}</strong>: ${esc(d.description)}</li>`,
           )
           .join('');
-        const kindLabel = { generate: 'generación', refine: 'refinado', iterate: 'ajuste del usuario' }[pass.kind];
+        const kindLabel = {
+          generate: 'generación', refine: 'refinado', iterate: 'ajuste del usuario', manual: 'edición manual',
+        }[pass.kind];
+        const edits = pass.edits ?? [];
+        const editList = edits
+          .slice(0, 6)
+          .map((e) => `<li>«${esc(e.before || '(vacío)')}» → «${esc(e.after || '(vacío)')}»</li>`)
+          .join('');
         return `<li class="pass ${pass.n === job.bestPass ? 'best' : ''}">
           <img class="pass-thumb" loading="lazy"
             src="/api/jobs/${esc(job.id)}/assets/passes/${esc(pass.screenshotFile)}" alt="Pasada ${pass.n}">
@@ -232,6 +239,10 @@
             </div>
             ${pass.userPrompt
               ? `<p class="pass-summary">${pass.targetLabel ? `<code>${esc(pass.targetLabel)}</code> ` : ''}«${esc(pass.userPrompt)}»</p>`
+              : ''}
+            ${pass.kind === 'manual'
+              ? `<p class="pass-summary">${edits.length} texto${edits.length === 1 ? '' : 's'} editado${edits.length === 1 ? '' : 's'} a mano · sin coste de tokens</p>
+                 ${editList ? `<ul class="discrepancies">${editList}</ul>` : ''}`
               : ''}
             ${verdict ? `<p class="pass-summary">${esc(verdict.summary)}</p>` : ''}
             ${discrepancies ? `<ul class="discrepancies">${discrepancies}</ul>` : ''}
@@ -255,14 +266,17 @@
         const label = `Pasada ${p.n}` +
           (p.n === job.bestPass ? ' · mejor' : '') +
           (p.kind === 'iterate' ? ' · ajuste' : '') +
+          (p.kind === 'manual' ? ' · manual' : '') +
           (p.score != null ? ` · ${Number(p.score).toFixed(1)}%` : '');
         return `<option value="${p.n}">${esc(label)}</option>`;
       })
       .join('');
 
-    const iterations = job.passes.filter((p) => p.kind === 'iterate');
-    const defaultPass = iterations.length > 0
-      ? iterations[iterations.length - 1].n
+    // Última iteración o edición manual: es lo que ve el usuario en el
+    // resultado (mismo criterio que currentResultPass() en el servidor).
+    const followUps = job.passes.filter((p) => p.kind === 'iterate' || p.kind === 'manual');
+    const defaultPass = followUps.length > 0
+      ? followUps[followUps.length - 1].n
       : (job.bestPass ?? job.passes[job.passes.length - 1].n);
     // Con el editor abierto se sigue siempre la pasada más reciente.
     const keepPrevious =
@@ -324,6 +338,19 @@
       width: resultJob.width,
       height: resultJob.height,
       passCount: resultJob.passes.length,
+      mode: 'prompt',
+    });
+  });
+
+  $('btn-edit-text').addEventListener('click', () => {
+    if (!resultJob) return;
+    window.VisualEditor.open({
+      jobId: resultJob.id,
+      pass: Number($('pass-select').value),
+      width: resultJob.width,
+      height: resultJob.height,
+      passCount: resultJob.passes.length,
+      mode: 'text',
     });
   });
 

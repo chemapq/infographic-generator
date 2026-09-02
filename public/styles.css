@@ -173,7 +173,8 @@ input[type='number'] { width: 90px; }
   text-decoration: none;
   display: inline-block;
 }
-.ghost:hover { border-color: var(--cyan-300); }
+.ghost:hover:not(:disabled) { border-color: var(--cyan-300); }
+.ghost:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ─── Pantalla de acceso ─── */
 .login-main { max-width: 420px; margin: 0 auto; padding: 12vh 24px; }
@@ -473,6 +474,24 @@ input[type='number'] { width: 90px; }
 .ed-brand { font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }
 .ed-meta { font-size: 12px; color: var(--text-muted); }
 .ed-bar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+.ed-modes { display: flex; gap: 3px; background: var(--navy-800); border: 1px solid var(--blue-700); border-radius: 10px; padding: 3px; }
+.ed-mode-btn {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.ed-mode-btn:hover:not(.is-active) { color: var(--text); }
+.ed-mode-btn.is-active { background: var(--cyan-600); color: var(--navy-950); font-weight: 600; }
+
+.ed-text-counter { font-weight: 600; color: var(--cyan-300); }
+#ed-text-highlight.is-active { border-color: var(--cyan-400); color: var(--cyan-300); }
 .ed-zoom { display: flex; align-items: center; gap: 8px; }
 .ed-icon {
   font-family: inherit;
@@ -523,6 +542,28 @@ input[type='number'] { width: 90px; }
   border-radius: 4px 4px 0 0;
   padding: 1px 6px;
 }
+
+/* ─── Edición manual de textos: cajas por nodo de texto ─── */
+.ed-text-boxes { position: absolute; inset: 0; pointer-events: none; }
+.ed-box-all { border: 1px dashed rgba(114, 163, 196, 0.55); }
+.ed-box-edited { border: 1px solid var(--cyan-300); background: rgba(25, 247, 241, 0.14); }
+.ed-box-edited::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cyan-300);
+}
+.ed-text-original {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.ed-text-original span { color: var(--text); }
 
 /* ─── Ventanita de prompt ─── */
 .ed-prompt {

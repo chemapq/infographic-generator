@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import sharp from 'sharp';
 import { env } from '../config/env.js';
-import type { JobEvent, JobOptions, JobRecord, PassRecord } from '../types.js';
+import type { JobEvent, JobOptions, JobRecord, PassRecord, TextEdit } from '../types.js';
 import { analyzeImage } from './claude/analyze.js';
 import { addUsage, emptyUsage, JobConversation, type CallUsage } from './claude/client.js';
 import { compareRender } from './claude/compare.js';
@@ -26,6 +26,7 @@ import {
   saveOriginal,
   savePassFile,
 } from './store.js';
+import { applyTextEdits } from './textEdits.js';
 import { sanitizeHtml } from './validator.js';
 
 interface ActiveJob {
@@ -149,20 +150,44 @@ export function subscribe(job: ActiveJob): { replay: JobEvent[]; emitter: EventE
   return { replay: job.events, emitter: job.emitter };
 }
 
-/** Pasada que ve el usuario en el resultado: última iteración o la mejor del bucle. */
+/** Pasada que ve el usuario en el resultado: última iteración/edición manual, o la mejor del bucle. */
 export function currentResultPass(record: JobRecord): PassRecord | null {
-  const iterations = record.passes.filter((p) => p.kind === 'iterate');
-  if (iterations.length > 0) return iterations[iterations.length - 1];
+  const followUps = record.passes.filter((p) => p.kind === 'iterate' || p.kind === 'manual');
+  if (followUps.length > 0) return followUps[followUps.length - 1];
   if (record.bestPass !== null) {
     return record.passes.find((p) => p.n === record.bestPass) ?? null;
   }
   return record.passes[record.passes.length - 1] ?? null;
 }
 
+/**
+ * Renderiza un HTML ya generado/editado y lo compara con el original:
+ * la cola común a una pasada de Claude y a una pasada manual de texto.
+ */
+async function renderAndScore(
+  job: ActiveJob,
+  passNumber: number,
+  html: string,
+  originalPng: Buffer,
+): Promise<{ renderPng: Buffer; diffPng: Buffer; score: number; screenshotFile: string; diffFile: string }> {
+  const { record } = job;
+  await setStatus(job, 'rendering');
+  const renderPng = await renderHtml(html, { width: record.width, height: record.height });
+  const screenshotFile = `pass-${passNumber}.png`;
+  await savePassFile(record.id, screenshotFile, renderPng);
+  emit(job, 'render:done', { n: passNumber, screenshot: `passes/${screenshotFile}` });
+
+  const { score, diffPng } = await diffImages(originalPng, renderPng);
+  const diffFile = `pass-${passNumber}-diff.png`;
+  await savePassFile(record.id, diffFile, diffPng);
+
+  return { renderPng, diffPng, score, screenshotFile, diffFile };
+}
+
 async function runPass(
   job: ActiveJob,
   passNumber: number,
-  kind: PassRecord['kind'],
+  kind: 'generate' | 'refine' | 'iterate',
   instruction: string,
   originalPng: Buffer,
 ): Promise<{ pass: PassRecord; renderPng: Buffer; diffPng: Buffer }> {
@@ -184,17 +209,13 @@ async function runPass(
   const htmlFile = `pass-${passNumber}.html`;
   await savePassFile(record.id, htmlFile, html);
 
-  // 2. Renderizar con Playwright.
-  await setStatus(job, 'rendering');
-  const renderPng = await renderHtml(html, { width: record.width, height: record.height });
-  const screenshotFile = `pass-${passNumber}.png`;
-  await savePassFile(record.id, screenshotFile, renderPng);
-  emit(job, 'render:done', { n: passNumber, screenshot: `passes/${screenshotFile}` });
-
-  // 3. Métrica pixelmatch + heatmap.
-  const { score, diffPng } = await diffImages(originalPng, renderPng);
-  const diffFile = `pass-${passNumber}-diff.png`;
-  await savePassFile(record.id, diffFile, diffPng);
+  // 2. Renderizar + 3. métrica pixelmatch + heatmap.
+  const { renderPng, diffPng, score, screenshotFile, diffFile } = await renderAndScore(
+    job,
+    passNumber,
+    html,
+    originalPng,
+  );
 
   const pass: PassRecord = {
     n: passNumber,
@@ -217,7 +238,7 @@ function accumulate(job: ActiveJob, usage: CallUsage): void {
 function updateBestPass(record: JobRecord): void {
   let best: PassRecord | null = null;
   for (const pass of record.passes) {
-    if (pass.kind === 'iterate' || pass.score === null) continue;
+    if (pass.kind === 'iterate' || pass.kind === 'manual' || pass.score === null) continue;
     if (!best || pass.score > (best.score ?? -1)) best = pass;
   }
   record.bestPass = best?.n ?? null;
@@ -412,5 +433,95 @@ async function runIteration(
     record.error = describeError(error).message;
     await saveJob(record).catch(() => {});
     emit(job, 'job:failed', { error: record.error, during: 'iterate' });
+  }
+}
+
+/**
+ * Edición manual de texto: aplica los cambios sobre la pasada actual sin
+ * pasar por Claude. Se encola igual que una iteración (comparte el
+ * Chromium y el `job.json` con el resto del pipeline); el `basePass` se
+ * valida aquí mismo, en caliente, para devolver un 409 inmediato si el
+ * resultado ya cambió por debajo. Que algún `before` ya no coincida con el
+ * HTML real solo se descubre al aplicar los cambios (hace falta el DOM), así
+ * que ese caso se resuelve como cualquier otro fallo de pasada: `job:failed`
+ * con el detalle, sin tocar el resultado previo.
+ */
+export async function requestTextEdit(
+  jobId: string,
+  basePass: number,
+  edits: TextEdit[],
+): Promise<JobRecord> {
+  const job = await getJob(jobId);
+  if (!job) throw new Error(`Job ${jobId} no encontrado`);
+  if (job.record.status !== 'done') {
+    throw new Error('El job debe estar terminado antes de guardar cambios de texto.');
+  }
+  const current = currentResultPass(job.record);
+  if (!current || current.n !== basePass) {
+    throw new Error(
+      `La pasada ${basePass} ya no es la que se muestra en el resultado (ahora es la ${current?.n ?? '—'}). ` +
+        'Recarga el editor y vuelve a intentarlo.',
+    );
+  }
+  enqueue(() => runManualPass(job, basePass, edits));
+  return job.record;
+}
+
+async function runManualPass(job: ActiveJob, basePass: number, edits: TextEdit[]): Promise<void> {
+  const { record } = job;
+  try {
+    const originalPng = await readOriginal(record.id);
+    const base = record.passes.find((p) => p.n === basePass);
+    if (!base) throw new Error(`La pasada ${basePass} ya no existe.`);
+    const baseHtml = (await readPassFile(record.id, base.htmlFile)).toString('utf8');
+
+    const passNumber = (record.passes[record.passes.length - 1]?.n ?? 0) + 1;
+    emit(job, 'pass:start', { n: passNumber, kind: 'manual' });
+
+    const { html: patched, failed } = await applyTextEdits(baseHtml, edits);
+    if (failed.length > 0) {
+      throw new Error(
+        `${failed.length} texto${failed.length === 1 ? '' : 's'} ya no coincide${failed.length === 1 ? '' : 'n'} ` +
+          'con la pasada actual (probablemente otro cambio la modificó mientras tanto): ' +
+          failed.map((f) => `«${f.before.slice(0, 60)}»`).join(', ') +
+          '. Recarga el editor y vuelve a intentarlo.',
+      );
+    }
+
+    const { html: sanitized, warnings } = sanitizeHtml(patched);
+    job.sanitizerWarnings = warnings;
+    const htmlFile = `pass-${passNumber}.html`;
+    await savePassFile(record.id, htmlFile, sanitized);
+
+    const { score, screenshotFile, diffFile } = await renderAndScore(job, passNumber, sanitized, originalPng);
+
+    const pass: PassRecord = {
+      n: passNumber,
+      kind: 'manual',
+      score,
+      verdict: null,
+      usage: emptyUsage(),
+      edits,
+      htmlFile,
+      screenshotFile,
+      diffFile,
+      createdAt: new Date().toISOString(),
+    };
+    record.passes.push(pass);
+    record.error = null; // el guardado salió bien: se limpia un fallo anterior
+    record.status = 'done';
+    await saveJob(record);
+    emit(job, 'pass:done', { n: pass.n, kind: 'manual', score: pass.score });
+    emit(job, 'job:done', {
+      bestPass: record.bestPass,
+      stopReason: record.stopReason,
+      totalUsage: record.totalUsage,
+      editedPass: pass.n,
+    });
+  } catch (error) {
+    record.status = 'done'; // el guardado falla, pero el resultado previo sigue siendo válido
+    record.error = describeError(error).message;
+    await saveJob(record).catch(() => {});
+    emit(job, 'job:failed', { error: record.error, during: 'text-edit' });
   }
 }

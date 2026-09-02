@@ -104,6 +104,17 @@ contexto del elemento (etiqueta, selector, markup y texto) viaja con el prompt e
 completo. El navegador no edita nada: el HTML lo escribe siempre Claude, y cada petición
 es una pasada más del job.
 
+**Edición manual de texto** (implementado, sin IA): el mismo editor tiene un segundo modo,
+"Editar textos", conmutable sin cerrar el lienzo. Se hace clic en un nodo de texto (no en
+el elemento: `<h1>5 <span class="hl">ESTRATEGIAS</span></h1>` son dos textos editables
+independientes, para no perder el `<span>` de color al reescribir), se teclea el cambio en
+una tarjeta y el lienzo reflowa en vivo. Al guardar (`POST /text-edit`), el servidor aplica
+los cambios sobre el DOM real con el Chromium de Playwright —todo o nada, verificando que
+el texto no haya cambiado por debajo— y la pasada resultante (`kind: 'manual'`) cuesta
+**cero tokens**: no hay ninguna llamada a Claude. Sirve para erratas y cambios de dato que
+no justifican esperar una generación entera. Detalle de diseño en
+[PLAN_EDICION_TEXTO.md](PLAN_EDICION_TEXTO.md).
+
 ---
 
 ## 4. Convenciones del HTML editable (el contrato de salida)
@@ -164,6 +175,7 @@ Este contrato es lo que hace que "editable" sea real y no solo un screenshot en 
 | `GET /api/jobs/:id` | Estado del job: pasada actual, scores y uso de tokens. |
 | `GET /api/jobs/:id/events` | **SSE**: progreso en vivo (inicio/fin de pasada, score, discrepancias, texto en streaming). |
 | `POST /api/jobs/:id/iterate` | Body `{ prompt, target? }` → iteración dirigida por el usuario; con `target` (elemento señalado) el cambio se acota a él. Repetible. |
+| `POST /api/jobs/:id/text-edit` | Body `{ basePass, edits: [{ selector, nodeIndex, before, after }] }` → cambios de texto aplicados a mano, **sin IA**. `409` si `basePass` ya no es la pasada actual. Detalle en [PLAN_EDICION_TEXTO.md](PLAN_EDICION_TEXTO.md). |
 | `GET /api/jobs/:id/result` | HTML final (y `?pass=n` para versiones anteriores). |
 | `GET /api/jobs/:id/assets/*` | Original, capturas y diffs de cada pasada (para el side-by-side de la UI). |
 | `GET /api/gallery` | Historial de jobs de esta instalación (`limit`, `cursor`, `q`, `status`, `sort`). Detalle en [PLAN_GALERIA.md](PLAN_GALERIA.md). |
@@ -187,6 +199,8 @@ Estática (HTML + CSS + JS vanilla, sin build), servida por Express. Vistas:
 4. **Editor por prompt** (superpuesto): la infografía a tamaño completo en un
    `<iframe sandbox="allow-same-origin">` del mismo origen; la app lee su DOM para resaltar
    el elemento bajo el puntero y, al hacer clic, abre la ventanita de prompt anclada a él.
+   Conmutador en la barra para saltar a **"Editar textos"**: mismo lienzo, pero el clic
+   señala un nodo de texto y el cambio se escribe a mano, sin llamar a Claude.
 5. **Galería** (`#/gallery`): historial local de infografías generadas — buscador, filtro por
    estado, orden por recencia o score, renombrar y borrar. Diseño completo en
    [PLAN_GALERIA.md](PLAN_GALERIA.md).
@@ -226,6 +240,7 @@ src/
     │   ├── generate.ts       # generación/refinado de HTML (streaming)
     │   └── compare.ts        # veredicto estructurado de comparación
     ├── renderer.ts           # Playwright: HTML → PNG determinista
+    ├── textEdits.ts          # edición manual de texto sobre el DOM, sin IA (ver PLAN_EDICION_TEXTO.md)
     ├── differ.ts             # sharp + pixelmatch: score + heatmap
     ├── gallery.ts             # GalleryRepository — listado/búsqueda/paginación (ver PLAN_GALERIA.md)
     ├── thumbs.ts              # miniatura WebP a demanda para la galería

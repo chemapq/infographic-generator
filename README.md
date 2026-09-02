@@ -29,7 +29,7 @@ Sin `ANTHROPIC_API_KEY`, el SDK también acepta `ANTHROPIC_AUTH_TOKEN` o un perf
 
 ## Uso
 
-- **Web**: abre `http://localhost:3000`, arrastra la imagen, elige nº máx. de pasadas y pulsa *Generar*. Verás el progreso en vivo (pasadas, score y discrepancias) y al terminar el comparador con slider, la **edición señalando elementos**, la descarga del HTML y la caja de ajustes finales.
+- **Web**: abre `http://localhost:3000`, arrastra la imagen, elige nº máx. de pasadas y pulsa *Generar*. Verás el progreso en vivo (pasadas, score y discrepancias) y al terminar el comparador con slider, la **edición señalando elementos** (con Claude) o **editando textos a mano** (sin IA), la descarga del HTML y la caja de ajustes finales.
 - **CLI** (pipeline sin UI): `npm run job -- ruta/a/infografia.png [maxPasses]`
 
 **Formatos admitidos:** PNG, JPEG, WebP y GIF, hasta 25 MB. El formato se comprueba por el contenido del archivo, no por su extensión, y lo que no se puede procesar se rechaza explicando qué hacer. En particular, las fotos **HEIC/HEIF del iPhone no se pueden decodificar**: conviértelas a PNG o JPEG (en el Mac, Vista Previa → Archivo → Exportar). Los errores de las librerías (libvips, Playwright, API de Anthropic) se traducen a lenguaje llano, con el mensaje técnico plegado aparte.
@@ -57,6 +57,16 @@ Cada petición es una **pasada más del job**: se envía a `POST /api/jobs/:id/i
 Detalle de implementación: el lienzo es un `<iframe sandbox="allow-same-origin">` servido desde el mismo origen (sin `allow-scripts`: el documento no ejecuta JS), así que la app lee su DOM para describir el elemento señalado. El HTML generado no necesita ninguna instrumentación y el navegador nunca lo modifica: los cambios los hace siempre Claude.
 
 Los clics **no** se escuchan dentro del iframe sino en una capa transparente por encima, y el elemento se resuelve con `elementFromPoint`: WebKit (Safari) no despacha eventos DOM en un documento con `sandbox` sin `allow-scripts`, aunque el padre sí pueda leer su DOM. Y el editor se engancha en cuanto existe el DOM del iframe, sin esperar a su evento `load`, que espera también a las Google Fonts del documento generado y con la red lenta dejaba el lienzo visible pero sin responder.
+
+## Editar textos a mano (sin IA)
+
+El mismo editor tiene un botón *Editar textos* que abre el lienzo en un segundo modo, conmutable con *Pedir cambios a la IA* sin cerrarlo. Aquí el clic no señala un elemento sino un **nodo de texto**: en `<h1>5 <span class="hl">ESTRATEGIAS</span></h1>` son dos textos editables independientes, así que reescribir uno no toca el `<span>` de color ni el resto del markup.
+
+- Se teclea el cambio en una tarjeta y el lienzo reflowa **en vivo**, sin esperar a nada.
+- *Resaltar textos* marca de un vistazo todos los nodos editables; `Tab` / `Mayús+Tab` los recorre en orden sin tocar el ratón; `⌘Z` deshace el último cambio confirmado; *↺ Restaurar* devuelve un texto concreto a como estaba.
+- Nada se guarda hasta pulsar *Guardar cambios* — hasta entonces, *Descartar* deja la infografía como estaba y cerrar el editor no toca nada en el servidor.
+
+Al guardar, `POST /api/jobs/:id/text-edit` aplica los cambios sobre el **DOM real** con el Chromium de Playwright (nunca como texto plano: así sobreviven entidades, atributos y SVG) y crea una pasada más, con `kind: "manual"`. Es todo o nada — si algún texto ya no coincide con lo que hay en el servidor (otra pestaña iteró con IA mientras tanto), no se aplica ninguno y se avisa cuáles. Y **no hay ninguna llamada a Claude**: la pasada resultante cuesta 0 tokens, aparece marcada como "edición manual" en el timeline y nunca compite por el chip de "mejor pasada" (ese lo decide el parecido con el original, no un cambio de texto hecho a propósito).
 
 ## Login (para desplegar)
 
@@ -90,6 +100,7 @@ persistente y pasos por host en [DEPLOY.md](DEPLOY.md).
 | `GET /api/jobs/:id` | Estado del job: pasadas, scores y uso de tokens. |
 | `GET /api/jobs/:id/events` | SSE con progreso en vivo (replay incluido). |
 | `POST /api/jobs/:id/iterate` | `{ "prompt": "...", "target"?: { label, selector, html, text } }` → una pasada más con las instrucciones del usuario, acotada al elemento señalado si se envía `target`. Repetible. |
+| `POST /api/jobs/:id/text-edit` | `{ "basePass": n, "edits": [{ selector, nodeIndex, before, after }] }` → cambios de texto a mano, **sin IA** (0 tokens). `409` si `basePass` ya no es la pasada actual. |
 | `GET /api/jobs/:id/result` | HTML final (`?pass=n` para versiones anteriores). |
 | `GET /api/jobs/:id/assets/...` | Original, capturas y diffs. |
 | `GET /api/gallery` | Historial de jobs (`?limit&cursor&q&status&sort`). |
@@ -109,6 +120,7 @@ src/
     ├── orchestrator.ts       # bucle generar → renderizar → comparar → refinar
     ├── claude/               # client (caché + uso) · prompts · schemas · analyze · generate · compare
     ├── renderer.ts           # Playwright: HTML → PNG determinista
+    ├── textEdits.ts          # edición manual de texto sobre el DOM, sin IA
     ├── differ.ts             # sharp + pixelmatch: score + heatmap
     ├── gallery.ts            # historial local: listar, buscar, paginar (ver PLAN_GALERIA.md)
     ├── thumbs.ts             # miniatura WebP a demanda
@@ -122,7 +134,7 @@ public/
 ├── index.html · styles.css   # UI: subida · progreso · resultado · editor
 ├── login.html                # pantalla de acceso (solo desde fuera del equipo)
 ├── app.js                    # subida, SSE, timeline, comparador
-└── editor.js                 # señalar elementos y pedir el cambio a Claude
+└── editor.js                 # señalar elementos (Claude) o editar textos a mano (sin IA)
 ```
 
 ## Uso de tokens

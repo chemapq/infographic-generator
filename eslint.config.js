@@ -36,6 +36,7 @@ export default tseslint.config(
         URL: 'readonly',
         URLSearchParams: 'readonly',
         EventSource: 'readonly',
+        NodeFilter: 'readonly',
         confirm: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',

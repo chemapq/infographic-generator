@@ -12,7 +12,19 @@ export type JobStatus =
   | 'done'
   | 'failed';
 
-export type PassKind = 'generate' | 'refine' | 'iterate';
+export type PassKind = 'generate' | 'refine' | 'iterate' | 'manual';
+
+/** Un cambio de texto aplicado a mano, sin pasar por Claude. */
+export interface TextEdit {
+  /** cssPath del elemento que contiene el nodo de texto. */
+  selector: string;
+  /** Índice del nodo de texto entre los childNodes de ese elemento. */
+  nodeIndex: number;
+  /** Texto tal como estaba al abrir el editor: verificación optimista antes de aplicar. */
+  before: string;
+  /** Texto nuevo. Puede ser vacío (borra el texto), nunca se borra el nodo. */
+  after: string;
+}
 
 export interface PassRecord {
   /** Número de pasada, 1-based. Las iteraciones del usuario continúan la serie. */
@@ -22,6 +34,8 @@ export interface PassRecord {
   userPrompt?: string;
   /** Elemento señalado en el editor visual, si la iteración iba dirigida a uno. */
   targetLabel?: string;
+  /** Cambios de texto aplicados a mano cuando kind === 'manual'. */
+  edits?: TextEdit[];
   score: number | null;
   verdict: Verdict | null;
   usage: CallUsage;

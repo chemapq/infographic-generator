@@ -123,6 +123,7 @@
             <select id="pass-select"></select>
           </label>
           <button id="btn-edit" class="cta small">Editar señalando</button>
+          <button id="btn-edit-text" class="ghost small">Editar textos</button>
           <button id="btn-download" class="ghost small">Descargar HTML</button>
           <button id="btn-copy" class="ghost small">Copiar código</button>
           <a id="btn-open" class="ghost small" target="_blank" rel="noopener">Abrir en pestaña</a>
@@ -165,7 +166,13 @@
   <section id="editor" class="editor" hidden role="dialog" aria-modal="true"
     aria-label="Editar señalando elementos">
     <header class="ed-bar">
-      <strong class="ed-brand">Señala y <span class="hl">pide el cambio</span></strong>
+      <strong class="ed-brand">Señala y <span class="hl">edita</span></strong>
+      <div class="ed-modes" role="tablist">
+        <button type="button" id="ed-mode-prompt" class="ed-mode-btn is-active" role="tab"
+          aria-selected="true">Pedir cambios a la IA</button>
+        <button type="button" id="ed-mode-text" class="ed-mode-btn" role="tab"
+          aria-selected="false">Editar textos</button>
+      </div>
       <span id="ed-pass" class="ed-meta"></span>
       <div class="ed-zoom">
         <button type="button" id="ed-zoom-out" class="ed-icon" title="Reducir zoom">−</button>
@@ -174,6 +181,10 @@
         <button type="button" id="ed-zoom-fit" class="ghost small">Ajustar</button>
       </div>
       <div class="ed-bar-right">
+        <button type="button" id="ed-text-highlight" class="ghost small" hidden>Resaltar textos</button>
+        <span id="ed-text-counter" class="ed-meta mono" hidden>Sin cambios</span>
+        <button type="button" id="ed-text-discard" class="ghost small" hidden disabled>Descartar</button>
+        <button type="button" id="ed-text-save" class="cta small" hidden disabled>Guardar cambios</button>
         <button type="button" id="ed-global" class="ghost small">Cambio en toda la pieza…</button>
         <button type="button" id="ed-close" class="ed-icon" title="Cerrar (Esc)">✕</button>
       </div>
@@ -195,34 +206,54 @@
             <div id="ed-sel" class="ed-box ed-box-sel" hidden>
               <span id="ed-sel-label" class="ed-box-label"></span>
             </div>
+            <div id="ed-text-all" class="ed-text-boxes" hidden></div>
+            <div id="ed-text-edited" class="ed-text-boxes" hidden></div>
+            <div id="ed-text-hover" class="ed-text-boxes" hidden></div>
+            <div id="ed-text-sel" class="ed-text-boxes" hidden></div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Ventanita de prompt, anclada al elemento señalado -->
+    <!-- Ventanita de prompt / tarjeta de texto, anclada al elemento señalado -->
     <div id="ed-prompt" class="ed-prompt" hidden>
       <header class="ed-prompt-head">
         <span id="ed-prompt-target" class="ed-prompt-target mono"></span>
         <button type="button" id="ed-prompt-close" class="ed-icon" title="Cerrar">✕</button>
       </header>
-      <p id="ed-prompt-context" class="ed-prompt-context" hidden></p>
-      <form id="ed-prompt-form">
-        <textarea id="ed-prompt-input" rows="3" spellcheck="false"
-          placeholder="p. ej. «rehaz este gráfico como barras horizontales», «cambia este azul por el verde de la paleta», «pon este título en dos líneas y más grande»"></textarea>
+
+      <div id="ed-mode-prompt-body">
+        <p id="ed-prompt-context" class="ed-prompt-context" hidden></p>
+        <form id="ed-prompt-form">
+          <textarea id="ed-prompt-input" rows="3" spellcheck="false"
+            placeholder="p. ej. «rehaz este gráfico como barras horizontales», «cambia este azul por el verde de la paleta», «pon este título en dos líneas y más grande»"></textarea>
+          <div class="ed-prompt-row">
+            <button type="button" id="ed-prompt-parent" class="ghost small"
+              title="Ampliar la selección al elemento contenedor">Señalar el contenedor</button>
+            <button type="submit" id="ed-prompt-send" class="cta small">Pedir el cambio</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="ed-mode-text-body" hidden>
+        <p class="ed-text-original">Original: <span id="ed-text-original"></span></p>
+        <textarea id="ed-text-value" rows="3" spellcheck="false"></textarea>
         <div class="ed-prompt-row">
-          <button type="button" id="ed-prompt-parent" class="ghost small"
-            title="Ampliar la selección al elemento contenedor">Señalar el contenedor</button>
-          <button type="submit" id="ed-prompt-send" class="cta small">Pedir el cambio</button>
+          <button type="button" id="ed-text-restore" class="ghost small">↺ Restaurar</button>
+          <button type="button" id="ed-text-done" class="cta small">Hecho</button>
         </div>
-      </form>
+      </div>
+
       <p id="ed-prompt-status" class="ed-prompt-status" hidden></p>
     </div>
 
     <footer class="ed-foot">
-      <span><strong>Clic</strong> en cualquier elemento para pedirle un cambio a Claude ·
+      <span id="ed-foot-prompt"><strong>Clic</strong> en cualquier elemento para pedirle un cambio a Claude ·
         <strong>⌘↵</strong> envía · <strong>Esc</strong> cierra · cada cambio queda como una
         pasada nueva del job</span>
+      <span id="ed-foot-text" hidden><strong>Clic</strong> en un texto para editarlo ·
+        <strong>Tab</strong> / <strong>Mayús+Tab</strong> pasa al siguiente · <strong>⌘Z</strong> deshace ·
+        <strong>Esc</strong> cierra · nada se guarda hasta pulsar <strong>Guardar cambios</strong> · sin coste de tokens</span>
     </footer>
   </section>
 
