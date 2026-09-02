@@ -14,7 +14,14 @@ export interface DiffResult {
  * se usa como tendencia y desempate, no como única verdad.
  */
 export async function diffImages(originalPng: Buffer, renderPng: Buffer): Promise<DiffResult> {
-  const original = await sharp(originalPng).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  // flatten() antes de ensureAlpha(): algunos originales del dataset llevan
+  // transparencia real (fondo alfa=0), que sin aplanar se lee como negro puro
+  // frente al blanco opaco de la captura y dispara falsos positivos masivos.
+  const original = await sharp(originalPng)
+    .flatten({ background: '#ffffff' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
   const { width, height } = original.info;
 
   const render = await sharp(renderPng)

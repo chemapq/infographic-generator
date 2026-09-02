@@ -32,3 +32,6 @@ pnpm-debug.log*
 
 # Coverage
 coverage/
+
+# Testing folder
+dataset_infografias/
