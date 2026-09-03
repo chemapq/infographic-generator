@@ -42,8 +42,43 @@ const jobs = new Map<string, ActiveJob>();
 
 // Fase 1: los pipelines se procesan en serie.
 let queue: Promise<void> = Promise.resolve();
+let queueLength = 0;
+
+/** Duración (ms) de las últimas tareas, para estimar el `Retry-After` de la API v1. */
+const recentDurationsMs: number[] = [];
+
 function enqueue(task: () => Promise<void>): void {
-  queue = queue.then(task, task);
+  queueLength++;
+  const startedAt = Date.now();
+  const run = async () => {
+    try {
+      await task();
+    } finally {
+      queueLength = Math.max(0, queueLength - 1);
+      recentDurationsMs.push(Date.now() - startedAt);
+      if (recentDurationsMs.length > 10) recentDurationsMs.shift();
+    }
+  };
+  queue = queue.then(run, run);
+}
+
+/** Jobs encolados o en curso ahora mismo. Usado por la API v1 para el `429 queue_full`. */
+export function queueDepth(): number {
+  return queueLength;
+}
+
+/**
+ * Estimación gruesa de espera para el `Retry-After` de un `429`: duración media
+ * de las últimas tareas × puestos por delante. Sin histórico todavía se asume
+ * un valor conservador; el resultado se acota a un rango razonable.
+ */
+export function estimateWaitSeconds(positionInQueue: number): number {
+  const avgMs =
+    recentDurationsMs.length > 0
+      ? recentDurationsMs.reduce((sum, ms) => sum + ms, 0) / recentDurationsMs.length
+      : 90_000;
+  const seconds = Math.round((avgMs * Math.max(positionInQueue, 1)) / 1000);
+  return Math.min(Math.max(seconds, 30), 600);
 }
 
 function emit(job: ActiveJob, type: JobEvent['type'], data: Record<string, unknown>): void {
@@ -74,6 +109,7 @@ export async function createJob(
   originalName: string,
   options: JobOptions,
   ownerId: string | null,
+  meta?: { idempotencyKey?: string; externalRef?: string },
 ): Promise<JobRecord> {
   // Preprocesado con sharp: orientación EXIF y <= 2576 px de lado largo.
   const normalized = await sharp(image)
@@ -101,6 +137,8 @@ export async function createJob(
     stopReason: null,
     error: null,
     ownerId,
+    idempotencyKey: meta?.idempotencyKey,
+    externalRef: meta?.externalRef,
   };
 
   const job: ActiveJob = {

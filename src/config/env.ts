@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 
 // Carga .env si existe (Node >= 20.12). No falla si no está.
@@ -16,6 +17,16 @@ function int(name: string, fallback: number): number {
     throw new Error(`La variable de entorno ${name} no es un entero: "${raw}"`);
   }
   return value;
+}
+
+/** Versión del `package.json`, para `GET /api/v1/health`. */
+function readVersion(): string {
+  try {
+    const raw = fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8');
+    return (JSON.parse(raw) as { version?: string }).version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
 }
 
 export const env = {
@@ -49,4 +60,21 @@ export const env = {
   galleryPageSize: int('GALLERY_PAGE_SIZE', 24),
   /** Ancho (px) de las miniaturas generadas para la galería. */
   thumbWidth: int('THUMB_WIDTH', 480),
+
+  /**
+   * Claves de la API v1 (bearer, para clientes servidor-a-servidor como el
+   * plugin de Moodle). Formato `nombre:clave,nombre2:clave2`. El nombre es el
+   * `ownerId` del job y lo único que se escribe en los logs.
+   */
+  apiKeys: process.env.API_KEYS?.trim() ?? '',
+  /** Jobs en cola (encolados + en curso) antes de que `POST /api/v1/jobs` devuelva 429. */
+  apiMaxQueueDepth: int('API_MAX_QUEUE_DEPTH', 5),
+  /** Tope de jobs por clave y día natural (UTC) antes de `429 quota_exceeded`. */
+  apiDailyJobLimit: int('API_DAILY_JOB_LIMIT', 50),
+  /** Antigüedad (días) a partir de la que se borra `output/<jobId>`. 0 = sin límite. */
+  retentionDays: int('RETENTION_DAYS', 0),
+  /** `false` sirve solo la API (sin estáticos, sin login, sin galería web). */
+  uiEnabled: (process.env.UI_ENABLED ?? 'true').trim().toLowerCase() !== 'false',
+  /** Versión del motor, expuesta en `GET /api/v1/health`. */
+  version: readVersion(),
 } as const;

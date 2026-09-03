@@ -13,8 +13,8 @@ este despliegue se hace con Docker en un host que mantenga el contenedor corrien
 | Variable | Por qué |
 | --- | --- |
 | `ANTHROPIC_API_KEY` | Sin ella, el SDK no puede llamar a la API. |
-| `AUTH_PASSWORD` | Con `NODE_ENV=production` (el Dockerfile lo fija) **el servidor no arranca sin ella** — ver [README § Login](README.md#login-para-desplegar). Define aquí la contraseña de acceso. |
-| `AUTH_SECRET` | Cadena aleatoria fija. Sin ella, cada redeploy/reinicio cierra todas las sesiones abiertas. Genérala una vez, p. ej. `openssl rand -hex 32`, y no la cambies. |
+| `AUTH_PASSWORD` y/o `API_KEYS` | Con `NODE_ENV=production` (el Dockerfile lo fija) **el servidor no arranca sin al menos una de las dos** — ver [README § Login](README.md#login-para-desplegar) y [README § API v1](README.md#api-v1-integraciones--moodle-y-similares). `AUTH_PASSWORD` protege la interfaz web; `API_KEYS` autentica clientes servidor-a-servidor (el plugin de Moodle). Un despliegue que solo alimenta a Moodle no necesita `AUTH_PASSWORD`: basta `API_KEYS` + `UI_ENABLED=false`. |
+| `AUTH_SECRET` | Cadena aleatoria fija. Sin ella, cada redeploy/reinicio cierra todas las sesiones abiertas. Genérala una vez, p. ej. `openssl rand -hex 32`, y no la cambies. Solo aplica si `AUTH_PASSWORD` está definida. |
 
 **Volumen persistente en `/app/output`:** ahí vive el estado de cada job (imagen
 original, HTML y capturas de cada pasada, `usage.json`). Sin un volumen montado ahí,

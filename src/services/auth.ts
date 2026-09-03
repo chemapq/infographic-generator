@@ -22,8 +22,8 @@ function sign(payload: string): string {
   return crypto.createHmac('sha256', env.authSecret).update(payload).digest('base64url');
 }
 
-/** Comparación en tiempo constante, sin filtrar la longitud. */
-function sameSecret(a: string, b: string): boolean {
+/** Comparación en tiempo constante, sin filtrar la longitud. Reutilizada por la API v1 (keys.ts). */
+export function sameSecret(a: string, b: string): boolean {
   const ha = crypto.createHash('sha256').update(a).digest();
   const hb = crypto.createHash('sha256').update(b).digest();
   return crypto.timingSafeEqual(ha, hb);

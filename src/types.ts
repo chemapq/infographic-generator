@@ -65,10 +65,14 @@ export interface JobRecord {
   totalUsage: CallUsage;
   stopReason: string | null;
   error: string | null;
-  /** Dueño del job (cookie `ig_owner`). `null` en jobs anteriores a la galería. */
+  /** Dueño del job (cookie `ig_owner`, o el nombre de la clave para jobs de la API v1). `null` en jobs anteriores a la galería. */
   ownerId: string | null;
   /** Título editable en la galería. Si falta, se usa `originalName` sin extensión. */
   title?: string;
+  /** Clave `Idempotency-Key` (API v1) con la que se creó el job. */
+  idempotencyKey?: string;
+  /** Referencia opaca del cliente de la API v1, p. ej. `moodle:<wwwroothash>:<rowid>`. */
+  externalRef?: string;
 }
 
 /** Fila ligera para la galería: sin `spec` ni `passes`, cabe de sobra en una lista. */

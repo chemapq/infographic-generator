@@ -108,16 +108,44 @@ persistente y pasos por host en [DEPLOY.md](DEPLOY.md).
 | `PATCH /api/jobs/:id` | `{ "title": "..." }` → renombra el job. |
 | `DELETE /api/jobs/:id` | Borra el job (`409` si sigue en curso). |
 
+## API v1 (integraciones — Moodle y similares)
+
+Además de la API de arriba (para el navegador, con cookie de sesión), hay una segunda API en
+`/api/v1` pensada para un **cliente servidor-a-servidor**: bearer token, sondeo en vez de SSE,
+respuestas ligeras e idempotencia. Es la que consume el plugin `local_awakeinfographic` de
+Moodle — ver [PLAN_MOODLE.md](PLAN_MOODLE.md) para el porqué y [docs/openapi.yaml](docs/openapi.yaml)
+para el contrato completo.
+
+```bash
+API_KEYS=moodle-pruebas:clave-larga-y-aleatoria   # en .env
+
+curl -s localhost:3000/api/v1/health                              # público, sin clave
+curl -s -X POST localhost:3000/api/v1/jobs \
+  -H 'Authorization: Bearer clave-larga-y-aleatoria' \
+  -H 'Idempotency-Key: prueba-001' \
+  -F 'image=@infografia.png'
+curl -s localhost:3000/api/v1/jobs/<jobId> -H 'Authorization: Bearer clave-larga-y-aleatoria'
+```
+
+Diferencias clave frente a `/api/jobs`: cada clave de `API_KEYS` es un cliente distinto y solo ve
+sus propios jobs (404 en cualquier otro caso, incluidos los de otra clave); `POST` exige
+`Idempotency-Key` (un reintento con la misma clave devuelve el mismo `jobId`, sin cobrar tokens
+dos veces); `GET /jobs/:id` no lleva `spec` ni `passes[]` salvo `?include=passes`; y `/html` se
+sirve como adjunto, no `inline`. `UI_ENABLED=false` arranca el motor sirviendo solo esta API (sin
+estáticos, login ni galería web) — pensado para un despliegue que solo alimenta a Moodle.
+
 ## Estructura
 
 ```
 src/
 ├── index.ts                  # Express + estáticos + rutas
 ├── cli.ts                    # pipeline invocable por script
-├── config/env.ts             # PORT, ANTHROPIC_MODEL, MAX_PASSES, AUTH_*…
+├── config/env.ts             # PORT, ANTHROPIC_MODEL, MAX_PASSES, AUTH_*, API_*…
 ├── api/                      # jobs.router.ts · gallery.router.ts · auth.router.ts · sse.ts
+│   └── v1/                   # API para integraciones: bearer, idempotencia, sondeo (ver arriba)
 └── services/
     ├── orchestrator.ts       # bucle generar → renderizar → comparar → refinar
+    ├── retention.ts          # barrido de output/ por antigüedad (RETENTION_DAYS)
     ├── claude/               # client (caché + uso) · prompts · schemas · analyze · generate · compare
     ├── renderer.ts           # Playwright: HTML → PNG determinista
     ├── textEdits.ts          # edición manual de texto sobre el DOM, sin IA

@@ -1,0 +1,258 @@
+openapi: 3.1.0
+info:
+  title: Infographic Generator — API v1
+  version: 1.0.0
+  description: >-
+    API para clientes servidor-a-servidor (bearer token, sondeo, idempotencia).
+    Pensada para el plugin de Moodle `local_awakeinfographic`, ver
+    ../PLAN_MOODLE.md. Distinta de la API de la interfaz web (`/api/jobs`,
+    autenticada por cookie de sesión), que no está documentada aquí y puede
+    cambiar sin previo aviso. `/api/v1` sí es un contrato estable: cualquier
+    cambio incompatible se publica como `/api/v2`.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Estado del motor
+      description: Público, sin clave. Usado por el botón «probar conexión» del plugin y por los healthchecks del host.
+      security: []
+      responses:
+        '200':
+          description: El motor responde.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, model, maxPasses, version]
+                properties:
+                  ok: { type: boolean }
+                  model: { type: string, example: claude-opus-4-8 }
+                  maxPasses: { type: integer, example: 5 }
+                  version: { type: string, example: 0.1.0 }
+  /jobs:
+    post:
+      summary: Crea un job
+      description: >-
+        `multipart/form-data`. La cabecera `Idempotency-Key` es obligatoria:
+        una segunda petición con la misma clave (del mismo cliente) devuelve
+        `200` con el `jobId` existente en vez de crear otro job.
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, maxLength: 200 }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: PNG/JPEG/WebP/GIF, ≤ 25 MB. El formato se valida por cabecera de bytes, no por extensión.
+                maxPasses:
+                  type: integer
+                  minimum: 1
+                  maximum: 8
+                  description: Por defecto, `MAX_PASSES` del motor.
+                notes:
+                  type: string
+                  maxLength: 2000
+                  description: Notas del profesor; se inyectan en la instrucción de la primera pasada.
+                externalRef:
+                  type: string
+                  maxLength: 500
+                  description: 'Opaco para el motor. El plugin manda `moodle:<wwwroothash>:<rowid>`.'
+      responses:
+        '202':
+          description: Job creado y encolado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobId, status, statusUrl]
+                properties:
+                  jobId: { type: string, example: a1b2c3d4 }
+                  status: { $ref: '#/components/schemas/JobStatus' }
+                  statusUrl: { type: string, example: /api/v1/jobs/a1b2c3d4 }
+        '200':
+          description: Réplica idempotente — ya existía un job con esa `Idempotency-Key`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobId, status, idempotent]
+                properties:
+                  jobId: { type: string }
+                  status: { $ref: '#/components/schemas/JobStatus' }
+                  idempotent: { type: boolean, enum: [true] }
+        '400':
+          description: '`missing_idempotency_key` · `missing_image` · `unsupported_image`'
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413':
+          description: '`image_too_large`'
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
+        '429':
+          description: '`queue_full` (con `retryAfterSeconds` y cabecera `Retry-After`) · `quota_exceeded`'
+          headers:
+            Retry-After: { schema: { type: integer }, description: Solo en `queue_full`. }
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
+  /jobs/{id}:
+    get:
+      summary: Estado ligero del job
+      description: >-
+        Sin `spec` ni `passes[]`: es lo que se sondea, así que tiene que ser
+        pequeño y barato. `?include=passes` añade el detalle completo.
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - in: query
+          name: include
+          schema: { type: string, enum: [passes] }
+      responses:
+        '200':
+          description: Estado del job.
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/JobStatusLight' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Borra el job
+      description: El HTML ya copiado a la File API de Moodle no se ve afectado. Que este borrado falle no debe impedir el borrado local en el plugin.
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '204': { description: Borrado. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`job_not_finished` — el job sigue en curso.'
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
+  /jobs/{id}/html:
+    get:
+      summary: HTML resultante
+      description: Como adjunto (`Content-Disposition: attachment`), para que ningún navegador lo ejecute en el origen del motor.
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - in: query
+          name: pass
+          schema: { type: integer }
+          description: Pasada concreta; por defecto la que se muestra como resultado.
+      responses:
+        '200':
+          description: HTML.
+          headers:
+            ETag: { schema: { type: string } }
+            Content-Disposition: { schema: { type: string } }
+          content:
+            text/html: { schema: { type: string } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: '`job_not_found` · `no_result` (todavía sin ninguna pasada con HTML)'
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
+  /jobs/{id}/preview.png:
+    get:
+      summary: Captura de la pasada actual
+      parameters: [{ $ref: '#/components/parameters/JobId' }]
+      responses:
+        '200': { description: PNG., content: { image/png: { schema: { type: string, format: binary } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /jobs/{id}/thumb.webp:
+    get:
+      summary: Miniatura
+      parameters: [{ $ref: '#/components/parameters/JobId' }]
+      responses:
+        '200': { description: WebP., content: { image/webp: { schema: { type: string, format: binary } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /jobs/{id}/original.png:
+    get:
+      summary: Imagen original normalizada
+      description: Para un antes/después. Es la imagen ya reorientada y redimensionada, no el archivo tal cual se subió.
+      parameters: [{ $ref: '#/components/parameters/JobId' }]
+      responses:
+        '200': { description: PNG., content: { image/png: { schema: { type: string, format: binary } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: 'Una de las claves declaradas en `API_KEYS` (formato `nombre:clave`), sin el prefijo del nombre.'
+  parameters:
+    JobId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[0-9a-f]{8}$' }
+  responses:
+    Unauthorized:
+      description: '`unauthorized` — falta el bearer o no coincide con ninguna clave.'
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
+    NotFound:
+      description: >-
+        `job_not_found` — no existe, o pertenece a otra clave de API. Las dos
+        situaciones devuelven el mismo 404: la API v1 no expone si un id de
+        otro cliente existe.
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
+  schemas:
+    JobStatus:
+      type: string
+      enum: [queued, analyzing, generating, rendering, comparing, refining, iterating, done, failed]
+    ApiError:
+      type: object
+      required: [code, error]
+      properties:
+        code: { type: string, description: Código estable; el cliente decide por aquí, no por `error`. }
+        error: { type: string, description: Mensaje en lenguaje llano. }
+        detail: { type: string }
+    JobStatusLight:
+      type: object
+      properties:
+        jobId: { type: string }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        progress:
+          type: object
+          properties:
+            pass: { type: integer }
+            maxPasses: { type: integer }
+        currentScore: { type: number, nullable: true }
+        bestPass: { type: integer, nullable: true }
+        bestScore: { type: number, nullable: true }
+        passCount: { type: integer }
+        stopReason: { type: string, nullable: true }
+        error: { type: string, nullable: true }
+        usage:
+          type: object
+          properties:
+            inputTokens: { type: integer }
+            outputTokens: { type: integer }
+            cacheReadTokens: { type: integer }
+            cacheWriteTokens: { type: integer }
+        createdAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time, nullable: true }
+        hasResult:
+          type: boolean
+          description: Ya hay HTML descargable aunque el job siga corriendo (una iteración posterior lo sustituye).
+        externalRef: { type: string, nullable: true }
+        spec:
+          description: Solo con `?include=passes`.
+        passes:
+          type: array
+          description: Solo con `?include=passes`.
+          items: {}
