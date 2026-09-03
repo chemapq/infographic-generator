@@ -1,0 +1,50 @@
+{{!
+    @template local_awakeinfographic/list
+
+    Listado de "Mis infografías" (o de todas, con viewall).
+
+    Context variables required for this template:
+    * jobs - array de {id, title, status, statusraw, score, timecreated, viewurl, owner}
+    * hasjobs - bool
+    * viewall - bool
+
+    Example context (json):
+    {
+        "hasjobs": true,
+        "viewall": false,
+        "jobs": [
+            {"id": 1, "title": "Ciclo del agua", "status": "Lista", "statusraw": "done", "score": "96.40%", "timecreated": "3 sep 2026, 10:00", "viewurl": "#"}
+        ]
+    }
+}}
+<div class="local-awakeinfographic-list">
+{{^hasjobs}}
+    <p>{{#str}}nojobs, local_awakeinfographic{{/str}}</p>
+{{/hasjobs}}
+{{#hasjobs}}
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>{{#str}}form:title, local_awakeinfographic{{/str}}</th>
+                {{#viewall}}<th>{{#str}}list:owner, local_awakeinfographic{{/str}}</th>{{/viewall}}
+                <th>{{#str}}list:status, local_awakeinfographic{{/str}}</th>
+                <th>{{#str}}list:score, local_awakeinfographic{{/str}}</th>
+                <th>{{#str}}list:created, local_awakeinfographic{{/str}}</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {{#jobs}}
+            <tr>
+                <td>{{title}}</td>
+                {{#viewall}}<td>{{owner}}</td>{{/viewall}}
+                <td><span class="badge badge-{{statusraw}}">{{status}}</span></td>
+                <td>{{score}}</td>
+                <td>{{timecreated}}</td>
+                <td><a href="{{viewurl}}">{{#str}}list:open, local_awakeinfographic{{/str}}</a></td>
+            </tr>
+        {{/jobs}}
+        </tbody>
+    </table>
+{{/hasjobs}}
+</div>

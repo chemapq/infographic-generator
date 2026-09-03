@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="local/awakeinfographic/db" VERSION="2026090300" COMMENT="XMLDB file for Moodle local/awakeinfographic"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
+>
+  <TABLES>
+    <TABLE NAME="local_awakeinfographic_job" COMMENT="Infografías generadas desde Moodle vía la API v1 del motor externo. Ver PLAN_MOODLE.md §4.1.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Dueño del activo (FK a user)."/>
+        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Curso desde el que se creó, informativo; el activo no vive en el curso."/>
+        <FIELD NAME="remotejobid" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false" COMMENT="Los 8 hex del jobId del motor. Null mientras no se ha enviado."/>
+        <FIELD NAME="idempotencykey" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false" COMMENT="Generada con random_string(32) al crear la fila, antes del primer envío."/>
+        <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Editable."/>
+        <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="pending" SEQUENCE="false" COMMENT="pending|submitted|running|done|failed"/>
+        <FIELD NAME="remotestatus" TYPE="char" LENGTH="20" NOTNULL="false" SEQUENCE="false" COMMENT="El status crudo del motor, para diagnóstico."/>
+        <FIELD NAME="score" TYPE="number" LENGTH="6" DECIMALS="2" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="passcount" TYPE="int" LENGTH="4" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="attempts" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Sondeos realizados; corta a MAXATTEMPTS."/>
+        <FIELD NAME="errorcode" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false" COMMENT="El code de la API, o uno propio del plugin (unsafe_html, timeout...)."/>
+        <FIELD NAME="errormessage" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="userid_fk" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+        <KEY NAME="courseid_fk" TYPE="foreign" FIELDS="courseid" REFTABLE="course" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
+        <INDEX NAME="remotejobid" UNIQUE="true" FIELDS="remotejobid"/>
+        <INDEX NAME="status" UNIQUE="false" FIELDS="status"/>
+      </INDEXES>
+    </TABLE>
+  </TABLES>
+</XMLDB>

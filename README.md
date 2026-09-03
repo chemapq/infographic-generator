@@ -134,6 +134,10 @@ dos veces); `GET /jobs/:id` no lleva `spec` ni `passes[]` salvo `?include=passes
 sirve como adjunto, no `inline`. `UI_ENABLED=false` arranca el motor sirviendo solo esta API (sin
 estáticos, login ni galería web) — pensado para un despliegue que solo alimenta a Moodle.
 
+El plugin `local_awakeinfographic` que consume esta API vive en [moodle-plugin/](moodle-plugin/)
+(PHP, no forma parte de este build de Node). Cómo instalarlo y probarlo de punta a punta con
+`moodle-docker`: [PLAN_MOODLE.md §7](PLAN_MOODLE.md#7-cómo-probarlo-en-moodle-de-cero).
+
 ## Estructura
 
 ```

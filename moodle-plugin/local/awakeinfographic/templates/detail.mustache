@@ -1,0 +1,53 @@
+{{!
+    @template local_awakeinfographic/detail
+
+    Ficha de una infografía: previsualización sandbox, descarga, borrado.
+
+    Context variables required for this template:
+    * status - string
+    * isdone - bool
+    * isfailed - bool
+    * score - string|null
+    * errormessage - string|null
+    * previewurl - string|null (pluginfile.php, sin forcedownload)
+    * downloadurl - string|null (pluginfile.php, forcedownload)
+    * deleteurl - string
+    * indexurl - string
+
+    Example context (json):
+    {
+        "status": "Lista", "isdone": true, "isfailed": false, "score": "96.40%",
+        "previewurl": "#", "downloadurl": "#", "deleteurl": "#", "indexurl": "#"
+    }
+}}
+<div class="local-awakeinfographic-detail">
+    <p><strong>{{#str}}list:status, local_awakeinfographic{{/str}}:</strong> {{status}}</p>
+    {{#score}}<p><strong>{{#str}}list:score, local_awakeinfographic{{/str}}:</strong> {{score}}</p>{{/score}}
+
+    {{#isfailed}}
+    <div class="alert alert-danger">{{errormessage}}</div>
+    {{/isfailed}}
+
+    {{#isdone}}
+    <div class="local-awakeinfographic-preview mb-3">
+        {{! sandbox="" sin allow-same-origin: aquí solo se muestra, nunca se lee el DOM (PLAN_MOODLE.md §4.4). }}
+        <iframe src="{{previewurl}}" sandbox="" style="width:100%;min-height:600px;border:1px solid #ccc;"></iframe>
+    </div>
+    <a class="btn btn-primary" href="{{downloadurl}}">{{#str}}view:download, local_awakeinfographic{{/str}}</a>
+    <p class="mt-3 small text-muted">
+        {{#str}}view:pluginfilehint, local_awakeinfographic{{/str}}<br>
+        <code>{{previewurl}}</code>
+    </p>
+    {{/isdone}}
+
+    {{^isdone}}
+    {{^isfailed}}
+    <p>{{#str}}view:waiting, local_awakeinfographic{{/str}}</p>
+    {{/isfailed}}
+    {{/isdone}}
+
+    <p class="mt-4">
+        <a href="{{indexurl}}">{{#str}}list:back, local_awakeinfographic{{/str}}</a>
+        · <a href="{{deleteurl}}" class="text-danger">{{#str}}view:delete, local_awakeinfographic{{/str}}</a>
+    </p>
+</div>
