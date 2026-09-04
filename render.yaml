@@ -18,6 +18,11 @@ services:
         sync: false
       - key: AUTH_PASSWORD
         sync: false
+      # Para clientes servidor-a-servidor (el plugin de Moodle). Formato
+      # "nombre:clave,nombre2:clave2" — ver README § API v1. Puede dejarse
+      # vacío si este despliegue solo sirve la interfaz web.
+      - key: API_KEYS
+        sync: false
       # Generado por Render al crear el servicio; no hace falta tocarlo.
       - key: AUTH_SECRET
         generateValue: true
