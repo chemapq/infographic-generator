@@ -25,15 +25,20 @@ foreach ($jobs as $row) {
 if ($hasrunning) {
     // Con algún job en curso, recarga simple: cinco líneas, no miente, y no
     // hace falta un web service ni un módulo AMD para la v1 (PLAN_MOODLE.md §4.3, paso 4).
-    $PAGE->set_periodicrefreshdelay(15);
+    // moodle_page::set_periodicrefreshdelay() no existe en todas las versiones
+    // (comprobado: Moodle 4.4.2 no la tiene); un timeout de JS sí es estable.
+    $PAGE->requires->js_init_code('setTimeout(function() { window.location.reload(); }, 15000);');
 }
 
 // El fallo número uno de quien empieza con tareas ad hoc: el cron de Moodle
 // no corre y nada se mueve nunca. Un job en pending más de 5 minutos con el
 // cron parado es la pista (PLAN_MOODLE.md §6). Solo se calcula aquí; se
 // pinta más abajo, después de $OUTPUT->header().
+// Comprobación defensiva: no todas las versiones de Moodle tienen este
+// método exacto (ya nos ha pasado dos veces con otras APIs en este plugin),
+// y esto es solo un aviso de cortesía — nunca debe tumbar la página.
 $showcronwarning = false;
-if ($haspendingtoolong) {
+if ($haspendingtoolong && method_exists('\core\task\manager', 'get_last_cron_start')) {
     $lastcron = \core\task\manager::get_last_cron_start();
     $showcronwarning = !$lastcron || $lastcron < $stalecutoff;
 }

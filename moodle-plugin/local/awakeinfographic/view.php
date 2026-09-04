@@ -19,7 +19,9 @@ $PAGE->set_heading(format_string($job->title));
 $PAGE->set_pagelayout('admin');
 
 if (!\local_awakeinfographic\job::is_finished($job)) {
-    $PAGE->set_periodicrefreshdelay(15);
+    // moodle_page::set_periodicrefreshdelay() no existe en todas las versiones
+    // (comprobado: Moodle 4.4.2 no la tiene); un timeout de JS sí es estable.
+    $PAGE->requires->js_init_code('setTimeout(function() { window.location.reload(); }, 15000);');
 }
 
 $usercontext = context_user::instance($job->userid);
