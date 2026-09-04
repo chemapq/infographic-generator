@@ -7,6 +7,10 @@ use local_awakeinfographic\api_client;
 use local_awakeinfographic\api_exception;
 use local_awakeinfographic\job;
 
+// get_file_storage() para guardar el resultado; no siempre está cargada por
+// defecto en el contexto en que corre una tarea ad hoc (cron CLI).
+require_once($CFG->libdir . '/filelib.php');
+
 /**
  * Una única tarea que resuelve los dos estados del job: enviarlo si no tiene
  * `remotejobid`, o sondearlo si ya lo tiene. Ver PLAN_MOODLE.md §4.3.

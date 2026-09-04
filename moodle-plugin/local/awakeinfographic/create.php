@@ -1,5 +1,7 @@
 <?php
 require(__DIR__ . '/../../config.php');
+require_once($CFG->libdir . '/adminlib.php');
+require_once($CFG->libdir . '/filelib.php');
 require_once($CFG->dirroot . '/local/awakeinfographic/classes/form/create_form.php');
 
 $courseid = optional_param('courseid', 0, PARAM_INT);

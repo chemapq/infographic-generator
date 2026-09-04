@@ -2,7 +2,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_awakeinfographic';
-$plugin->version   = 2026090303;
+$plugin->version   = 2026090304;
 // Suelo conservador en Moodle 4.1 (2022112800): el plugin no usa ninguna API
 // posterior a esa versión (Task API, Privacy API, File API y moodleform son
 // estables desde mucho antes). El staging de la empresa corre 4.4.2+

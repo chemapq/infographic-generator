@@ -3,6 +3,10 @@ namespace local_awakeinfographic;
 
 defined('MOODLE_INTERNAL') || die();
 
+// get_file_storage(), file_save_draft_area_files()... no siempre está cargada
+// por defecto según el punto de entrada que autocargue esta clase.
+require_once($CFG->libdir . '/filelib.php');
+
 /**
  * Entidad + CRUD sobre `local_awakeinfographic_job` y el pegamento con la
  * File API. Ver PLAN_MOODLE.md §4.1 (tabla) y §4.3 (flujo).

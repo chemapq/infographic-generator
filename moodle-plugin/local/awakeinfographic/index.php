@@ -1,5 +1,6 @@
 <?php
 require(__DIR__ . '/../../config.php');
+require_once($CFG->libdir . '/adminlib.php');
 
 // Registrada como admin_externalpage en settings.php: esto hace require_login(),
 // comprueba la capability del nodo y deja el árbol de administración resaltado.

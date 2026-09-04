@@ -3,6 +3,10 @@ namespace local_awakeinfographic;
 
 defined('MOODLE_INTERNAL') || die();
 
+// La clase \curl y make_request_directory() viven aquí; no siempre está
+// cargada por defecto según el punto de entrada que autocargue esta clase.
+require_once($CFG->libdir . '/filelib.php');
+
 /**
  * Cliente HTTP contra la API v1 del motor (bearer, multipart, JSON). Ver
  * PLAN_MOODLE.md §3 (contrato) y §4.5 (por qué `ignoresecurity` y los
