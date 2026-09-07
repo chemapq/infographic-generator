@@ -1,3 +1,4 @@
+/* GENERADO por scripts/build-moodle.mjs — copia literal, no editar a mano. Fuente: public/app.js */
 /* Infographic Generator — UI (vanilla JS, sin build) */
 (() => {
   'use strict';

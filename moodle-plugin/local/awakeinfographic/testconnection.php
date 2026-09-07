@@ -32,5 +32,15 @@ try {
     );
 }
 
+// Editar con IA es una llamada síncrona de hasta 180 s (§6.8, §6.11): un
+// max_execution_time bajo la corta a mitad sin avisar de por qué.
+$maxexecutiontime = (int) ini_get('max_execution_time');
+if ($maxexecutiontime > 0 && $maxexecutiontime < 180) {
+    echo $OUTPUT->notification(
+        get_string('testconnection:maxexecutiontime', 'local_awakeinfographic', $maxexecutiontime),
+        \core\output\notification::NOTIFY_WARNING
+    );
+}
+
 echo html_writer::link($settingsurl, get_string('back'));
 echo $OUTPUT->footer();

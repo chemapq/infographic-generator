@@ -134,9 +134,21 @@ dos veces); `GET /jobs/:id` no lleva `spec` ni `passes[]` salvo `?include=passes
 sirve como adjunto, no `inline`. `UI_ENABLED=false` arranca el motor sirviendo solo esta API (sin
 estáticos, login ni galería web) — pensado para un despliegue que solo alimenta a Moodle.
 
+`POST /api/v1/edit` es la otra mitad: edición **sin estado** (HTML + prompt entran, HTML sale),
+sin job, sin `output/`, sin Chromium — una única llamada a Claude, decenas de segundos en vez de
+minutos. No comparte cupo con `POST /jobs`: tiene su propio `API_DAILY_EDIT_LIMIT` y su propio
+semáforo de concurrencia `API_MAX_CONCURRENT_EDITS` (no pasa por la cola en serie).
+
+```bash
+curl -s -X POST localhost:3000/api/v1/edit \
+  -H 'Authorization: Bearer clave-larga-y-aleatoria' -H 'Content-Type: application/json' \
+  -d '{"html":"<!DOCTYPE html>…","prompt":"pon el titular en mayúsculas"}'
+```
+
 El plugin `local_awakeinfographic` que consume esta API vive en [moodle-plugin/](moodle-plugin/)
-(PHP, no forma parte de este build de Node). Cómo instalarlo y probarlo de punta a punta con
-`moodle-docker`: [PLAN_MOODLE.md §7](PLAN_MOODLE.md#7-cómo-probarlo-en-moodle-de-cero).
+(PHP, no forma parte de este build de Node) — reutiliza `public/app.js`/`public/editor.js` **sin
+tocarlos**, copiados por `npm run build:moodle` (ver [moodle-plugin/local/awakeinfographic/README.md](moodle-plugin/local/awakeinfographic/README.md)).
+Cómo instalarlo y probarlo de punta a punta con `moodle-docker`: [PLAN_MOODLE.md §8](PLAN_MOODLE.md#8-cómo-probarlo-de-cero).
 
 ## Estructura
 
@@ -146,9 +158,10 @@ src/
 ├── cli.ts                    # pipeline invocable por script
 ├── config/env.ts             # PORT, ANTHROPIC_MODEL, MAX_PASSES, AUTH_*, API_*…
 ├── api/                      # jobs.router.ts · gallery.router.ts · auth.router.ts · sse.ts
-│   └── v1/                   # API para integraciones: bearer, idempotencia, sondeo (ver arriba)
+│   └── v1/                   # API para integraciones: bearer, idempotencia, sondeo, /edit (ver arriba)
 └── services/
     ├── orchestrator.ts       # bucle generar → renderizar → comparar → refinar
+    ├── editHtml.ts           # edición sin estado para POST /api/v1/edit (sin job, sin output/)
     ├── retention.ts          # barrido de output/ por antigüedad (RETENTION_DAYS)
     ├── claude/               # client (caché + uso) · prompts · schemas · analyze · generate · compare
     ├── renderer.ts           # Playwright: HTML → PNG determinista
@@ -164,9 +177,13 @@ src/
     └── store.ts              # persistencia en output/<jobId>/
 public/
 ├── index.html · styles.css   # UI: subida · progreso · resultado · editor
+├── config.js · api.js        # IG_CONFIG + apiFetch()/fileUrl(): mismo app.js/editor.js
+│                              # sirven a la app y al plugin de Moodle sin tocarlos
 ├── login.html                # pantalla de acceso (solo desde fuera del equipo)
-├── app.js                    # subida, SSE, timeline, comparador
+├── app.js                    # subida, SSE (o sondeo si features.sse=false), timeline, comparador
 └── editor.js                 # señalar elementos (Claude) o editar textos a mano (sin IA)
+scripts/
+└── build-moodle.mjs          # public/* → moodle-plugin/…/{templates,styles,js} (ver PLAN_MOODLE.md §6.5)
 ```
 
 ## Uso de tokens

@@ -17,6 +17,17 @@ $capabilities = [
             'manager' => CAP_ALLOW,
         ],
     ],
+    // Separada de `generate` a propósito: hay centros que querrán que un
+    // perfil pueda retocar pero no generar de cero (PLAN_MOODLE.md §6.3).
+    'local/awakeinfographic:edit' => [
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_SYSTEM,
+        'riskbitmask' => RISK_SPAM,
+        'archetypes' => [
+            'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW,
+        ],
+    ],
     'local/awakeinfographic:viewall' => [
         'captype' => 'read',
         'contextlevel' => CONTEXT_SYSTEM,

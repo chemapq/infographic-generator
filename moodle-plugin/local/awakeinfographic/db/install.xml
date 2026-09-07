@@ -1,22 +1,24 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/awakeinfographic/db" VERSION="2026090300" COMMENT="XMLDB file for Moodle local/awakeinfographic"
+<XMLDB PATH="local/awakeinfographic/db" VERSION="2026090700" COMMENT="XMLDB file for Moodle local/awakeinfographic"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
   <TABLES>
-    <TABLE NAME="local_awakeinfographic_job" COMMENT="Infografías generadas desde Moodle vía la API v1 del motor externo. Ver PLAN_MOODLE.md §4.1.">
+    <TABLE NAME="local_awakeinfographic_job" COMMENT="El activo: una infografía generada desde Moodle vía la API v1 del motor externo. El historial de versiones vive en local_awakeinfographic_version. Ver PLAN_MOODLE.md §6.2.">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
         <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Dueño del activo (FK a user)."/>
         <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Curso desde el que se creó, informativo; el activo no vive en el curso."/>
-        <FIELD NAME="remotejobid" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false" COMMENT="Los 8 hex del jobId del motor. Null mientras no se ha enviado."/>
+        <FIELD NAME="remotejobid" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false" COMMENT="Los 8 hex del jobId del motor. Null hasta el primer envío. Nunca sale al navegador."/>
         <FIELD NAME="idempotencykey" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false" COMMENT="Generada con random_string(32) al crear la fila, antes del primer envío."/>
         <FIELD NAME="title" TYPE="char" LENGTH="255" NOTNULL="true" SEQUENCE="false" COMMENT="Editable."/>
+        <FIELD NAME="width" TYPE="int" LENGTH="6" NOTNULL="false" SEQUENCE="false" COMMENT="Lienzo, en px. Lo necesitan el editor y el comparador."/>
+        <FIELD NAME="height" TYPE="int" LENGTH="6" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="pending" SEQUENCE="false" COMMENT="pending|submitted|running|done|failed"/>
         <FIELD NAME="remotestatus" TYPE="char" LENGTH="20" NOTNULL="false" SEQUENCE="false" COMMENT="El status crudo del motor, para diagnóstico."/>
-        <FIELD NAME="score" TYPE="number" LENGTH="6" DECIMALS="2" NOTNULL="false" SEQUENCE="false"/>
-        <FIELD NAME="passcount" TYPE="int" LENGTH="4" NOTNULL="false" SEQUENCE="false"/>
-        <FIELD NAME="attempts" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Sondeos realizados; corta a MAXATTEMPTS."/>
+        <FIELD NAME="currentversion" TYPE="int" LENGTH="4" NOTNULL="false" SEQUENCE="false" COMMENT="versionno que se muestra."/>
+        <FIELD NAME="bestversion" TYPE="int" LENGTH="4" NOTNULL="false" SEQUENCE="false" COMMENT="versionno de mejor score entre las generadas (generate/refine)."/>
+        <FIELD NAME="attempts" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Sondeos realizados; corta a job::MAXATTEMPTS."/>
         <FIELD NAME="errorcode" TYPE="char" LENGTH="64" NOTNULL="false" SEQUENCE="false" COMMENT="El code de la API, o uno propio del plugin (unsafe_html, timeout...)."/>
         <FIELD NAME="errormessage" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
@@ -31,6 +33,26 @@
         <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
         <INDEX NAME="remotejobid" UNIQUE="true" FIELDS="remotejobid"/>
         <INDEX NAME="status" UNIQUE="false" FIELDS="status"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="local_awakeinfographic_version" COMMENT="El historial de un job: cada pasada de generación (generate/refine) o edición (ai/manual) es una fila propia, con su propio fichero en la File API. Ver PLAN_MOODLE.md §6.2.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="jobid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="versionno" TYPE="int" LENGTH="4" NOTNULL="true" SEQUENCE="false" COMMENT="1-based. Corresponde al pass que ve app.js."/>
+        <FIELD NAME="origin" TYPE="char" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="generate|refine|ai|manual"/>
+        <FIELD NAME="score" TYPE="number" LENGTH="6" DECIMALS="2" NOTNULL="false" SEQUENCE="false" COMMENT="null en ai y manual."/>
+        <FIELD NAME="prompt" TYPE="text" NOTNULL="false" SEQUENCE="false" COMMENT="El prompt del profesor, en origin=ai."/>
+        <FIELD NAME="targetlabel" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Elemento señalado, en origin=ai."/>
+        <FIELD NAME="haspreview" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="0 en ai y manual: no hay captura."/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="jobid_fk" TYPE="foreign" FIELDS="jobid" REFTABLE="local_awakeinfographic_job" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="jobid_versionno" UNIQUE="true" FIELDS="jobid, versionno"/>
       </INDEXES>
     </TABLE>
   </TABLES>

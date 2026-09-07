@@ -1,61 +1,51 @@
 <?php
 require(__DIR__ . '/../../config.php');
 require_once($CFG->libdir . '/adminlib.php');
+require_once($CFG->libdir . '/filelib.php');
 
 // Registrada como admin_externalpage en settings.php: esto hace require_login(),
-// comprueba la capability del nodo y deja el árbol de administración resaltado.
+// comprueba la capability del nodo y deja el árbol de administración
+// resaltado si se llega desde ahí. `embedded` se aplica después, para que la
+// página se vea como la app y no como un Moodle (PLAN_MOODLE.md §6.5).
 admin_externalpage_setup('local_awakeinfographic_list');
-$context = context_system::instance();
-
-$viewall = has_capability('local/awakeinfographic:viewall', $context);
-$conditions = $viewall ? [] : ['userid' => $USER->id];
-$jobs = $DB->get_records('local_awakeinfographic_job', $conditions, 'timemodified DESC');
-
-$hasrunning = false;
-$haspendingtoolong = false;
-$stalecutoff = time() - 5 * MINSECS;
-foreach ($jobs as $row) {
-    if (!\local_awakeinfographic\job::is_finished($row)) {
-        $hasrunning = true;
-    }
-    if ($row->status === \local_awakeinfographic\job::STATUS_PENDING && $row->timecreated < $stalecutoff) {
-        $haspendingtoolong = true;
-    }
-}
-if ($hasrunning) {
-    // Con algún job en curso, recarga simple: cinco líneas, no miente, y no
-    // hace falta un web service ni un módulo AMD para la v1 (PLAN_MOODLE.md §4.3, paso 4).
-    // moodle_page::set_periodicrefreshdelay() no existe en todas las versiones
-    // (comprobado: Moodle 4.4.2 no la tiene); un timeout de JS sí es estable.
-    $PAGE->requires->js_init_code('setTimeout(function() { window.location.reload(); }, 15000);');
-}
+$PAGE->set_pagelayout('embedded');
+$PAGE->set_url(new moodle_url('/local/awakeinfographic/index.php'));
+$PAGE->set_title(get_string('pluginname', 'local_awakeinfographic'));
+$PAGE->set_heading(get_string('pluginname', 'local_awakeinfographic'));
 
 // El fallo número uno de quien empieza con tareas ad hoc: el cron de Moodle
 // no corre y nada se mueve nunca. Un job en pending más de 5 minutos con el
-// cron parado es la pista (PLAN_MOODLE.md §6). Solo se calcula aquí; se
-// pinta más abajo, después de $OUTPUT->header().
-// Comprobación defensiva: no todas las versiones de Moodle tienen este
-// método exacto (ya nos ha pasado dos veces con otras APIs en este plugin),
-// y esto es solo un aviso de cortesía — nunca debe tumbar la página.
+// cron parado es la pista. Comprobación defensiva: no todas las versiones de
+// Moodle tienen `get_last_cron_start()` (ya ha pasado con otras APIs en este
+// plugin) — es solo un aviso de cortesía, nunca debe tumbar la página.
+$stalecutoff = time() - 5 * MINSECS;
+$haspendingtoolong = $DB->record_exists_select(
+    'local_awakeinfographic_job',
+    'userid = :userid AND status = :status AND timecreated < :cutoff',
+    ['userid' => $USER->id, 'status' => \local_awakeinfographic\job::STATUS_PENDING, 'cutoff' => $stalecutoff]
+);
 $showcronwarning = false;
 if ($haspendingtoolong && method_exists('\core\task\manager', 'get_last_cron_start')) {
     $lastcron = \core\task\manager::get_last_cron_start();
     $showcronwarning = !$lastcron || $lastcron < $stalecutoff;
 }
 
-$rows = [];
-foreach ($jobs as $row) {
-    $rows[] = [
-        'id' => $row->id,
-        'title' => format_string($row->title),
-        'status' => get_string('status:' . $row->status, 'local_awakeinfographic'),
-        'statusraw' => $row->status,
-        'score' => $row->score !== null ? number_format((float) $row->score, 2) . '%' : '—',
-        'timecreated' => userdate($row->timecreated, get_string('strftimedatetimeshort', 'langconfig')),
-        'viewurl' => (new moodle_url('/local/awakeinfographic/view.php', ['id' => $row->id]))->out(false),
-        'owner' => $viewall ? fullname(\core_user::get_user($row->userid)) : null,
-    ];
-}
+$PAGE->requires->css(new moodle_url('https://fonts.googleapis.com/css2', [
+    'family' => 'Poppins:wght@300;400;500;600;700',
+    'display' => 'swap',
+]));
+$PAGE->requires->css(new moodle_url('/local/awakeinfographic/styles/app.css'));
+
+// `IG_CONFIG` se inyecta en línea (no como js/config.js estático): lleva el
+// sesskey y las URLs de este Moodle concreto, que solo se conocen en tiempo
+// de petición (§6.5). `sse`/`auth` apagados: PHP-FPM no sostiene SSE y la
+// sesión es la del propio Moodle.
+$igconfig = [
+    'apiBase' => (new moodle_url('/local/awakeinfographic/ajax/index.php'))->out(false),
+    'filesBase' => (new moodle_url('/local/awakeinfographic/files.php'))->out(false),
+    'extraParams' => ['sesskey' => sesskey()],
+    'features' => ['sse' => false, 'auth' => false, 'score' => true],
+];
 
 echo $OUTPUT->header();
 if ($showcronwarning) {
@@ -64,17 +54,12 @@ if ($showcronwarning) {
         \core\output\notification::NOTIFY_WARNING
     );
 }
-echo $OUTPUT->heading(get_string('pluginname', 'local_awakeinfographic'));
-echo html_writer::link(
-    new moodle_url('/local/awakeinfographic/create.php'),
-    get_string('newinfographic', 'local_awakeinfographic'),
-    ['class' => 'btn btn-primary mb-3']
-);
 
-echo $OUTPUT->render_from_template('local_awakeinfographic/list', [
-    'jobs' => array_values($rows),
-    'hasjobs' => count($rows) > 0,
-    'viewall' => $viewall,
+echo $OUTPUT->render_from_template('local_awakeinfographic/app', [
+    'igconfigjson' => json_encode($igconfig),
+    'apijsurl' => (new moodle_url('/local/awakeinfographic/js/api.js'))->out(false),
+    'editorjsurl' => (new moodle_url('/local/awakeinfographic/js/editor.js'))->out(false),
+    'appjsurl' => (new moodle_url('/local/awakeinfographic/js/app.js'))->out(false),
 ]);
 
 echo $OUTPUT->footer();

@@ -79,6 +79,8 @@ async function lightStatus(record: JobRecord, includePasses: boolean): Promise<R
   const base: Record<string, unknown> = {
     jobId: record.id,
     status: record.status,
+    width: record.width,
+    height: record.height,
     progress: { pass: record.passes.length, maxPasses: record.options.maxPasses },
     currentScore: lastPass?.score ?? null,
     bestPass: record.bestPass,
@@ -197,14 +199,17 @@ v1JobsRouter.get('/:id/html', async (req, res) => {
     .send(html);
 });
 
-/** GET /api/v1/jobs/:id/preview.png — captura de la pasada que se muestra como resultado. */
+/** GET /api/v1/jobs/:id/preview.png — captura de la pasada indicada. `?pass=n`, por defecto la que se muestra como resultado. */
 v1JobsRouter.get('/:id/preview.png', async (req, res) => {
   const record = await ownedJob(req.params.id, req.apiOwnerId);
   if (!record) {
     sendError(res, 404, 'job_not_found', 'Job no encontrado.');
     return;
   }
-  const pass = currentResultPass(record);
+  const requested = Number.parseInt(String(req.query.pass ?? ''), 10);
+  const pass = Number.isNaN(requested)
+    ? currentResultPass(record)
+    : (record.passes.find((p) => p.n === requested) ?? null);
   if (!pass) {
     sendError(res, 404, 'no_result', 'El job no tiene todavía ninguna captura.');
     return;

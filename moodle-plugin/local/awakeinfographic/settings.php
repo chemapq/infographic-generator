@@ -37,6 +37,15 @@ if ($hassiteconfig) {
         PARAM_INT
     ));
 
+    // Apaga solo la edición con IA (que cuesta tokens); la manual sigue
+    // disponible porque es gratis (§6.13).
+    $settings->add(new admin_setting_configcheckbox(
+        'local_awakeinfographic/allowaiedit',
+        get_string('setting:allowaiedit', 'local_awakeinfographic'),
+        get_string('setting:allowaiedit_desc', 'local_awakeinfographic'),
+        1
+    ));
+
     $testurl = new moodle_url('/local/awakeinfographic/testconnection.php');
     $settings->add(new admin_setting_description(
         'local_awakeinfographic/testconnection',
@@ -44,19 +53,12 @@ if ($hassiteconfig) {
         html_writer::link($testurl, get_string('setting:testconnection_link', 'local_awakeinfographic'))
     ));
 
-    // Enlaces directos junto a los ajustes: sin ellos, generar una infografía
-    // exige conocer la URL de memoria (PLAN_MOODLE.md §7.3).
+    // Enlace directo junto a los ajustes: sin él, abrir la app exige conocer
+    // la URL de memoria.
     $ADMIN->add('localplugins', new admin_externalpage(
         'local_awakeinfographic_list',
         get_string('mylist', 'local_awakeinfographic'),
         new moodle_url('/local/awakeinfographic/index.php'),
-        'local/awakeinfographic:generate'
-    ));
-
-    $ADMIN->add('localplugins', new admin_externalpage(
-        'local_awakeinfographic_create',
-        get_string('newinfographic', 'local_awakeinfographic'),
-        new moodle_url('/local/awakeinfographic/create.php'),
         'local/awakeinfographic:generate'
     ));
 }

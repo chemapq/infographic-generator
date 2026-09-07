@@ -66,7 +66,7 @@ class api_client {
      * Llamada JSON (GET/POST/DELETE) contra `$path`. Único punto que
      * `fake_api_client` sustituye para las respuestas que decodifican a JSON.
      */
-    protected function call(string $method, string $path, array $curloptions, array $headers, array $postparams = []): array {
+    protected function call(string $method, string $path, array $curloptions, array $headers, array|string $postparams = []): array {
         $curl = $this->new_curl($curloptions);
         $curl->setHeader($headers);
         $url = $this->baseurl . $path;
@@ -137,9 +137,27 @@ class api_client {
         return $this->call('get', '/api/v1/jobs/' . $remotejobid, ['connecttimeout' => 15, 'timeout' => 30], $this->headers());
     }
 
+    /** GET /api/v1/jobs/:id?include=passes — con el detalle de cada pasada, para descargarlas todas como versiones. */
+    public function get_status_with_passes(string $remotejobid): array {
+        return $this->call(
+            'get',
+            '/api/v1/jobs/' . $remotejobid . '?include=passes',
+            ['connecttimeout' => 15, 'timeout' => 30],
+            $this->headers()
+        );
+    }
+
     /** GET /api/v1/jobs/:id/html — el HTML final, tal cual. */
     public function download_html(string $remotejobid): string {
         return $this->raw_call('/api/v1/jobs/' . $remotejobid . '/html', ['connecttimeout' => 30, 'timeout' => 300]);
+    }
+
+    /** GET /api/v1/jobs/:id/html?pass=n — el HTML de una pasada concreta. */
+    public function download_html_pass(string $remotejobid, int $pass): string {
+        return $this->raw_call(
+            '/api/v1/jobs/' . $remotejobid . '/html?pass=' . $pass,
+            ['connecttimeout' => 30, 'timeout' => 300]
+        );
     }
 
     /** GET /api/v1/jobs/:id/preview.png — la captura de la pasada que se muestra como resultado. */
@@ -147,8 +165,40 @@ class api_client {
         return $this->raw_call('/api/v1/jobs/' . $remotejobid . '/preview.png', ['connecttimeout' => 30, 'timeout' => 300]);
     }
 
+    /** GET /api/v1/jobs/:id/preview.png?pass=n — la captura de una pasada concreta. */
+    public function download_preview_pass(string $remotejobid, int $pass): string {
+        return $this->raw_call(
+            '/api/v1/jobs/' . $remotejobid . '/preview.png?pass=' . $pass,
+            ['connecttimeout' => 30, 'timeout' => 300]
+        );
+    }
+
     /** DELETE /api/v1/jobs/:id. Que falle no es motivo para no borrar en local (job::delete). */
     public function delete_job(string $remotejobid): void {
         $this->call('delete', '/api/v1/jobs/' . $remotejobid, ['connecttimeout' => 15, 'timeout' => 30], $this->headers());
+    }
+
+    /**
+     * POST /api/v1/edit — edición sin estado. `$target` es el elemento
+     * señalado (`label`/`selector`/`html`/`text`), o `null` para un cambio
+     * sobre toda la pieza. 180 s de timeout: es la llamada sin estado más
+     * larga del contrato (§6.11, §6.8).
+     */
+    public function edit_html(string $html, string $prompt, ?array $target, ?string $originaljobid): array {
+        $payload = ['html' => $html, 'prompt' => $prompt];
+        if ($target !== null) {
+            $payload['target'] = $target;
+        }
+        if ($originaljobid !== null) {
+            $payload['originalJobId'] = $originaljobid;
+        }
+
+        return $this->call(
+            'post',
+            '/api/v1/edit',
+            ['connecttimeout' => 30, 'timeout' => 180],
+            array_merge($this->headers(), ['Content-Type: application/json']),
+            json_encode($payload)
+        );
     }
 }

@@ -1,3 +1,4 @@
+/* GENERADO por scripts/build-moodle.mjs — copia literal, no editar a mano. Fuente: public/editor.js */
 /*
  * Editor superpuesto con dos modos, conmutables sin cerrar el lienzo:
  *

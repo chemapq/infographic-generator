@@ -23,7 +23,7 @@ class fake_api_client extends api_client {
         // necesitan apibaseurl/apikey reales.
     }
 
-    protected function call(string $method, string $path, array $curloptions, array $headers, array $postparams = []): array {
+    protected function call(string $method, string $path, array $curloptions, array $headers, array|string $postparams = []): array {
         $this->calls[] = ['method' => $method, 'path' => $path];
         if (empty($this->jsonresponses)) {
             throw new \coding_exception('fake_api_client: no hay más respuestas JSON programadas para ' . $path);

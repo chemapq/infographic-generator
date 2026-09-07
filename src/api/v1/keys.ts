@@ -55,30 +55,40 @@ interface DailyCount {
   count: number;
 }
 
-// En memoria, sin persistencia: un reinicio del motor regala un día de cupo.
-// Igual que `sessionEpoch` en auth.ts, es una simplificación deliberada — no
-// hay base de datos en este plan, y el caso de abuso real es un bucle que
-// reintenta sin parar, no alguien reiniciando el proceso a propósito.
-const dailyCounts = new Map<string, DailyCount>();
-
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** `true` si `ownerId` ya alcanzó `API_DAILY_JOB_LIMIT` hoy. No consume cupo. */
-export function quotaExceeded(ownerId: string): boolean {
-  const entry = dailyCounts.get(ownerId);
-  if (!entry || entry.day !== today()) return false;
-  return entry.count >= env.apiDailyJobLimit;
+// En memoria, sin persistencia: un reinicio del motor regala un día de cupo.
+// Igual que `sessionEpoch` en auth.ts, es una simplificación deliberada — no
+// hay base de datos en este plan, y el caso de abuso real es un bucle que
+// reintenta sin parar, no alguien reiniciando el proceso a propósito.
+function dailyQuota(limit: () => number) {
+  const counts = new Map<string, DailyCount>();
+  return {
+    /** `true` si `ownerId` ya alcanzó el límite hoy. No consume cupo. */
+    exceeded(ownerId: string): boolean {
+      const entry = counts.get(ownerId);
+      if (!entry || entry.day !== today()) return false;
+      return entry.count >= limit();
+    },
+    /** Consume una unidad de cupo diario. Solo al completar la operación de verdad, nunca en una réplica idempotente. */
+    consume(ownerId: string): void {
+      const day = today();
+      const entry = counts.get(ownerId);
+      if (!entry || entry.day !== day) {
+        counts.set(ownerId, { day, count: 1 });
+      } else {
+        entry.count++;
+      }
+    },
+  };
 }
 
-/** Consume una unidad de cupo diario. Llamar solo al crear un job de verdad, nunca en una réplica idempotente. */
-export function consumeQuota(ownerId: string): void {
-  const day = today();
-  const entry = dailyCounts.get(ownerId);
-  if (!entry || entry.day !== day) {
-    dailyCounts.set(ownerId, { day, count: 1 });
-  } else {
-    entry.count++;
-  }
-}
+const jobQuota = dailyQuota(() => env.apiDailyJobLimit);
+const editQuota = dailyQuota(() => env.apiDailyEditLimit);
+
+export const quotaExceeded = jobQuota.exceeded;
+export const consumeQuota = jobQuota.consume;
+export const editQuotaExceeded = editQuota.exceeded;
+export const consumeEditQuota = editQuota.consume;

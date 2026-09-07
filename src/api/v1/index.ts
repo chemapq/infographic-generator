@@ -9,6 +9,7 @@ import { MulterError } from 'multer';
 import { env } from '../../config/env.js';
 import { describeError } from '../../services/errors.js';
 import { resolveApiKey } from './keys.js';
+import { v1EditRouter } from './edit.router.js';
 import { v1JobsRouter } from './jobs.router.js';
 
 export const v1Router = Router();
@@ -38,6 +39,7 @@ v1Router.use((req, res, next) => {
 });
 
 v1Router.use('/jobs', v1JobsRouter);
+v1Router.use('/edit', v1EditRouter);
 
 // Manejador de errores propio: todo fallo de /api/v1 lleva un `code` estable,
 // a diferencia del manejador global de index.ts (pensado para el navegador).

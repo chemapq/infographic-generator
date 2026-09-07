@@ -25,9 +25,15 @@ class provider implements
             'userid' => 'privacy:metadata:job:userid',
             'title' => 'privacy:metadata:job:title',
             'status' => 'privacy:metadata:job:status',
-            'score' => 'privacy:metadata:job:score',
             'timecreated' => 'privacy:metadata:job:timecreated',
         ], 'privacy:metadata:job');
+
+        $collection->add_database_table('local_awakeinfographic_version', [
+            'origin' => 'privacy:metadata:version:origin',
+            'score' => 'privacy:metadata:version:score',
+            'prompt' => 'privacy:metadata:version:prompt',
+            'timecreated' => 'privacy:metadata:version:timecreated',
+        ], 'privacy:metadata:version');
 
         $collection->add_subsystem_link('core_files', [], 'privacy:metadata:files');
 
@@ -74,23 +80,47 @@ class provider implements
             $jobs = $DB->get_records('local_awakeinfographic_job', ['userid' => $user->id]);
             $data = [];
             foreach ($jobs as $row) {
+                $versions = $DB->get_records('local_awakeinfographic_version', ['jobid' => $row->id], 'versionno ASC');
                 $data[] = [
                     'title' => $row->title,
                     'status' => $row->status,
-                    'score' => $row->score,
                     'timecreated' => \core_privacy\local\request\transform::datetime($row->timecreated),
+                    'versions' => array_map(fn ($v) => [
+                        'versionno' => $v->versionno,
+                        'origin' => $v->origin,
+                        'score' => $v->score,
+                        'prompt' => $v->prompt,
+                        'timecreated' => \core_privacy\local\request\transform::datetime($v->timecreated),
+                    ], array_values($versions)),
                 ];
+
+                // Ficheros del job: itemid = id del job (source) o de cada
+                // versión (version/preview) — se exportan por su propia ruta.
+                writer::with_context($context)->export_area_files(
+                    [get_string('pluginname', 'local_awakeinfographic'), format_string($row->title)],
+                    'local_awakeinfographic',
+                    'source',
+                    $row->id
+                );
+                foreach ($versions as $v) {
+                    writer::with_context($context)->export_area_files(
+                        [get_string('pluginname', 'local_awakeinfographic'), format_string($row->title), 'v' . $v->versionno],
+                        'local_awakeinfographic',
+                        'version',
+                        $v->id
+                    );
+                    writer::with_context($context)->export_area_files(
+                        [get_string('pluginname', 'local_awakeinfographic'), format_string($row->title), 'v' . $v->versionno],
+                        'local_awakeinfographic',
+                        'preview',
+                        $v->id
+                    );
+                }
             }
 
             writer::with_context($context)->export_data(
                 [get_string('pluginname', 'local_awakeinfographic')],
                 (object) ['jobs' => $data]
-            );
-            writer::with_context($context)->export_area_files(
-                [get_string('pluginname', 'local_awakeinfographic')],
-                'local_awakeinfographic',
-                'result',
-                0
             );
         }
     }

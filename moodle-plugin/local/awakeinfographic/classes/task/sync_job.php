@@ -5,7 +5,10 @@ defined('MOODLE_INTERNAL') || die();
 
 use local_awakeinfographic\api_client;
 use local_awakeinfographic\api_exception;
+use local_awakeinfographic\html_guard;
 use local_awakeinfographic\job;
+use local_awakeinfographic\unsafe_html_exception;
+use local_awakeinfographic\version;
 
 // get_file_storage() para guardar el resultado; no siempre está cargada por
 // defecto en el contexto en que corre una tarea ad hoc (cron CLI).
@@ -13,7 +16,8 @@ require_once($CFG->libdir . '/filelib.php');
 
 /**
  * Una única tarea que resuelve los dos estados del job: enviarlo si no tiene
- * `remotejobid`, o sondearlo si ya lo tiene. Ver PLAN_MOODLE.md §4.3.
+ * `remotejobid`, o sondearlo si ya lo tiene. Al terminar, descarga **cada**
+ * pasada de generación como una versión propia de Moodle (§6.9, §6.12).
  *
  * Detalle que importa: «sigue en curso» se resuelve reencolando una tarea
  * nueva y *retornando con normalidad*, nunca lanzando una excepción. Si esta
@@ -119,8 +123,9 @@ class sync_job extends \core\task\adhoc_task {
         }
 
         $job->remotestatus = $status['status'] ?? null;
-        $job->score = $status['bestScore'] ?? $status['currentScore'] ?? null;
-        $job->passcount = $status['passCount'] ?? null;
+        if (!empty($status['width']) && !empty($status['height'])) {
+            job::set_dimensions((int) $job->id, (int) $status['width'], (int) $status['height']);
+        }
 
         if (($status['status'] ?? '') === 'failed') {
             $this->fail($job, 'remote_failed', $status['error'] ?? get_string('error:remotefailed', 'local_awakeinfographic'));
@@ -139,46 +144,57 @@ class sync_job extends \core\task\adhoc_task {
         $this->requeue($job, $this->backoff($job->attempts));
     }
 
+    /**
+     * Descarga **cada** pasada (`generate`/`refine`, siempre con score y
+     * captura — la v1 no expone `/iterate`) como una versión propia. Idempotente
+     * a propósito: si un intento anterior ya bajó las 3 primeras de 5, este
+     * solo baja la 4ª y la 5ª. Un fallo de descarga a mitad de camino
+     * reencola en vez de fallar el job entero.
+     */
     protected function download_result(api_client $client, \stdClass $job): void {
         global $DB;
 
         try {
-            $html = $client->download_html($job->remotejobid);
-            $preview = $client->download_preview($job->remotejobid);
+            $full = $client->get_status_with_passes($job->remotejobid);
         } catch (api_exception $e) {
-            // El job terminó bien en el motor pero la descarga falló (red, timeout…): se reintenta.
             $this->requeue($job, $this->backoff($job->attempts));
             return;
         }
 
-        if (!$this->passes_safety_check($html)) {
-            $this->fail($job, 'unsafe_html', get_string('error:unsafehtml', 'local_awakeinfographic'));
+        $passes = $full['passes'] ?? [];
+        if (!$passes) {
+            $this->fail($job, 'no_result', get_string('error:remotefailed', 'local_awakeinfographic'));
             return;
         }
 
-        $usercontext = \context_user::instance($job->userid);
-        $fs = get_file_storage();
+        $freshjob = job::get((int) $job->id); // currentversion se actualiza en cada version::create().
+        foreach ($passes as $pass) {
+            $n = (int) ($pass['n'] ?? 0);
+            if (!$n || version::get_by_versionno((int) $job->id, $n)) {
+                continue; // ya bajada en un intento anterior de esta misma tarea.
+            }
 
-        $fs->delete_area_files($usercontext->id, 'local_awakeinfographic', 'result', $job->id);
-        $fs->create_file_from_string([
-            'contextid' => $usercontext->id,
-            'component' => 'local_awakeinfographic',
-            'filearea' => 'result',
-            'itemid' => $job->id,
-            'filepath' => '/',
-            'filename' => 'infographic.html',
-        ], $html);
+            try {
+                $html = $client->download_html_pass($job->remotejobid, $n);
+                $preview = $client->download_preview_pass($job->remotejobid, $n);
+            } catch (api_exception $e) {
+                $this->requeue($job, $this->backoff($job->attempts));
+                return;
+            }
 
-        $fs->delete_area_files($usercontext->id, 'local_awakeinfographic', 'preview', $job->id);
-        $fs->create_file_from_string([
-            'contextid' => $usercontext->id,
-            'component' => 'local_awakeinfographic',
-            'filearea' => 'preview',
-            'itemid' => $job->id,
-            'filepath' => '/',
-            'filename' => 'preview.png',
-        ], $preview);
+            try {
+                html_guard::assert_safe($html);
+            } catch (unsafe_html_exception $e) {
+                $this->fail($job, 'unsafe_html', get_string('error:unsafehtml', 'local_awakeinfographic'));
+                return;
+            }
 
+            $origin = $n === 1 ? version::ORIGIN_GENERATE : version::ORIGIN_REFINE;
+            $score = isset($pass['score']) && $pass['score'] !== null ? (float) $pass['score'] : null;
+            version::create($freshjob, $origin, $score, null, null, $html, $preview);
+        }
+
+        $job = $DB->get_record('local_awakeinfographic_job', ['id' => $job->id]);
         $job->status = job::STATUS_DONE;
         $job->errorcode = null;
         $job->errormessage = null;
@@ -186,31 +202,7 @@ class sync_job extends \core\task\adhoc_task {
         $DB->update_record('local_awakeinfographic_job', $job);
     }
 
-    /**
-     * Defensa en profundidad, además del saneado que ya hace el motor
-     * (`sanitizeHtml()`, orchestrator.ts): si aparece `<script`, un atributo
-     * `on*=` o una URL externa fuera de Google Fonts, se rechaza el
-     * resultado. Ver PLAN_MOODLE.md §4.4, punto 2.
-     */
-    protected function passes_safety_check(string $html): bool {
-        if (preg_match('/<script\b/i', $html)) {
-            return false;
-        }
-        if (preg_match('/\son\w+\s*=/i', $html)) {
-            return false;
-        }
-        if (preg_match_all('/https?:\/\/([^\s"\'<>)]+)/i', $html, $matches)) {
-            foreach ($matches[1] as $match) {
-                $host = strtolower(explode('/', $match)[0]);
-                if (!in_array($host, ['fonts.googleapis.com', 'fonts.gstatic.com'], true)) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    /** 30 s, 60 s, 120 s, tope 120 s (PLAN_MOODLE.md §4.3). */
+    /** 30 s, 60 s, 120 s, tope 120 s (§6.12). */
     protected function backoff(int $attempts): int {
         return min(30 * (2 ** min($attempts, 2)), 120);
     }

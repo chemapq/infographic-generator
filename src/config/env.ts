@@ -71,6 +71,10 @@ export const env = {
   apiMaxQueueDepth: int('API_MAX_QUEUE_DEPTH', 5),
   /** Tope de jobs por clave y día natural (UTC) antes de `429 quota_exceeded`. */
   apiDailyJobLimit: int('API_DAILY_JOB_LIMIT', 50),
+  /** Tope de ediciones (`POST /api/v1/edit`) por clave y día natural. Un orden de magnitud más barato que un job. */
+  apiDailyEditLimit: int('API_DAILY_EDIT_LIMIT', 500),
+  /** Ediciones en curso a la vez, para no reventar el límite de la API de Anthropic. No pasan por la cola en serie. */
+  apiMaxConcurrentEdits: int('API_MAX_CONCURRENT_EDITS', 4),
   /** Antigüedad (días) a partir de la que se borra `output/<jobId>`. 0 = sin límite. */
   retentionDays: int('RETENTION_DAYS', 0),
   /** `false` sirve solo la API (sin estáticos, sin login, sin galería web). */

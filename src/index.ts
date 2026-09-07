@@ -15,7 +15,10 @@ import { startRetentionSweep } from './services/retention.js';
 
 const app = express();
 
-app.use(express.json({ limit: '1mb' }));
+// 3 MB: cubre el HTML de hasta 2 MB que acepta POST /api/v1/edit (más el
+// margen del escapado JSON) sin abrir la puerta a cuerpos arbitrariamente
+// grandes en el resto de rutas, que en la práctica no se acercan a ese tamaño.
+app.use(express.json({ limit: '3mb' }));
 
 // La API v1 (bearer) se monta antes que nada: tiene su propia autenticación y
 // no debe pasar por el guardián de cookie de abajo, pensado para el navegador.

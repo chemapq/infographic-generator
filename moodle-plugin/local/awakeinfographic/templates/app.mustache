@@ -1,18 +1,9 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Infographic Generator · Awakelab</title>
-  <link rel="icon" type="image/png"
-    href="https://media.awakelab.world/MARCA_AWK26/awakelab_isotipo_fondo-blanco_transparente.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <header class="topbar">
+{{!
+    GENERADO por scripts/build-moodle.mjs — no editar a mano.
+    Fuente: public/index.html
+}}
+<div class="ig-app">
+<header class="topbar">
     <a class="brand" href="#/" title="Awakelab · Infographic Generator">
       <img class="brand-logo"
         src="https://media.awakelab.world/MARCA_AWK26/awakelab_logo_fondo-oscuro_transparente.png"
@@ -256,10 +247,8 @@
         <strong>Esc</strong> cierra · nada se guarda hasta pulsar <strong>Guardar cambios</strong> · sin coste de tokens</span>
     </footer>
   </section>
-
-  <script src="config.js"></script>
-  <script src="api.js"></script>
-  <script src="editor.js"></script>
-  <script src="app.js"></script>
-</body>
-</html>
+  <script>window.IG_CONFIG = {{{igconfigjson}}};</script>
+  <script src="{{apijsurl}}"></script>
+  <script src="{{editorjsurl}}"></script>
+  <script src="{{appjsurl}}"></script>
+</div>

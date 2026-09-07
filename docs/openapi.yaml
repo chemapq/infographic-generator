@@ -163,8 +163,13 @@ paths:
             application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
   /jobs/{id}/preview.png:
     get:
-      summary: Captura de la pasada actual
-      parameters: [{ $ref: '#/components/parameters/JobId' }]
+      summary: Captura de la pasada indicada
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - in: query
+          name: pass
+          schema: { type: integer }
+          description: Pasada concreta; por defecto la que se muestra como resultado.
       responses:
         '200': { description: PNG., content: { image/png: { schema: { type: string, format: binary } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -186,6 +191,83 @@ paths:
         '200': { description: PNG., content: { image/png: { schema: { type: string, format: binary } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /edit:
+    post:
+      summary: Edita HTML sin estado
+      description: >-
+        HTML entra, HTML sale. Sin job, sin `output/`, sin Chromium, sin
+        pixelmatch, sin cola en serie: una única llamada a Claude. No cuenta
+        contra `API_DAILY_JOB_LIMIT`; tiene su propio `API_DAILY_EDIT_LIMIT` y
+        su propio semáforo de concurrencia (`API_MAX_CONCURRENT_EDITS`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [html, prompt]
+              properties:
+                html:
+                  type: string
+                  maxLength: 2097152
+                  description: El HTML actual, completo.
+                prompt:
+                  type: string
+                  maxLength: 2000
+                target:
+                  type: object
+                  description: El elemento señalado en el editor visual, si lo hay.
+                  properties:
+                    label: { type: string, maxLength: 200 }
+                    selector: { type: string, maxLength: 500 }
+                    html: { type: string, maxLength: 4000 }
+                    text: { type: string, maxLength: 400 }
+                originalJobId:
+                  type: string
+                  pattern: '^[0-9a-f]{8}$'
+                  description: >-
+                    Opcional: id de un job propio del motor cuyo original.png
+                    se adjunta como referente visual (con cache_control
+                    ephemeral). Si ya no está en disco, se degrada sin error.
+      responses:
+        '200':
+          description: HTML editado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [html, usage, warnings]
+                properties:
+                  html: { type: string }
+                  usage:
+                    type: object
+                    properties:
+                      inputTokens: { type: integer }
+                      outputTokens: { type: integer }
+                      cacheReadTokens: { type: integer }
+                      cacheWriteTokens: { type: integer }
+                  warnings:
+                    type: array
+                    items: { type: string }
+                    description: Avisos de sanitizeHtml(), de la entrada y/o la salida.
+                  originalAvailable:
+                    type: boolean
+                    description: Presente solo si se mandó `originalJobId`.
+        '400':
+          description: '`missing_html` · `html_too_large` · `missing_prompt` · `prompt_too_large`'
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429':
+          description: '`quota_exceeded` · `edit_queue_full` (con `retryAfterSeconds` y cabecera `Retry-After`)'
+          headers:
+            Retry-After: { schema: { type: integer }, description: Solo en `edit_queue_full`. }
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
+        '502':
+          description: '`edit_failed` — la llamada a la API de Anthropic falló.'
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/ApiError' } }
 components:
   securitySchemes:
     bearerAuth:
@@ -226,6 +308,8 @@ components:
       properties:
         jobId: { type: string }
         status: { $ref: '#/components/schemas/JobStatus' }
+        width: { type: integer }
+        height: { type: integer }
         progress:
           type: object
           properties:

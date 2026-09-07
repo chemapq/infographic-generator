@@ -2,7 +2,10 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_awakeinfographic';
-$plugin->version   = 2026090305;
+// De "solo generar" (0.1.0) a "generar + editar" (PLAN_MOODLE.md): nuevas
+// tablas/fileareas, migradas en db/upgrade.php — no destructivo con lo que
+// ya hubiera en el staging.
+$plugin->version   = 2026090700;
 // Suelo conservador en Moodle 4.1 (2022112800): el plugin no usa ninguna API
 // posterior a esa versión (Task API, Privacy API, File API y moodleform son
 // estables desde mucho antes). El staging de la empresa corre 4.4.2+

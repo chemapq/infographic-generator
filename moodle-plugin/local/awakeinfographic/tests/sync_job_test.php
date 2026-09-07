@@ -28,10 +28,12 @@ final class sync_job_test extends \advanced_testcase {
         $record->remotejobid = null;
         $record->idempotencykey = random_string(32);
         $record->title = 'Prueba';
+        $record->width = null;
+        $record->height = null;
         $record->status = job::STATUS_PENDING;
         $record->remotestatus = null;
-        $record->score = null;
-        $record->passcount = null;
+        $record->currentversion = null;
+        $record->bestversion = null;
         $record->attempts = 0;
         $record->errorcode = null;
         $record->errormessage = null;
@@ -107,16 +109,17 @@ final class sync_job_test extends \advanced_testcase {
         $DB->set_field('local_awakeinfographic_job', 'status', job::STATUS_SUBMITTED, ['id' => $job->id]);
 
         $client = new fake_api_client();
-        $client->jsonresponses[] = [200, ['status' => 'refining', 'currentScore' => 91.2, 'bestScore' => 92.0, 'passCount' => 2]];
+        $client->jsonresponses[] = [200, ['status' => 'refining', 'width' => 800, 'height' => 600]];
 
         $task = testable_sync_job::make($client, ['jobid' => $job->id]);
-        // No debe lanzar: PLAN_MOODLE.md §4.3, "detalle que importa". Si lanzara,
+        // No debe lanzar: PLAN_MOODLE.md §6.12, "detalle que importa". Si lanzara,
         // PHPUnit marcaría este test como fallido igualmente.
         $task->execute();
 
         $reloaded = $DB->get_record('local_awakeinfographic_job', ['id' => $job->id]);
         $this->assertSame(job::STATUS_RUNNING, $reloaded->status);
-        $this->assertEquals(92.0, (float) $reloaded->score);
+        $this->assertEquals(800, $reloaded->width);
+        $this->assertEquals(600, $reloaded->height);
         $this->assertCount(1, \core\task\manager::get_adhoc_tasks(sync_job::class));
     }
 
@@ -129,7 +132,10 @@ final class sync_job_test extends \advanced_testcase {
         $DB->set_field('local_awakeinfographic_job', 'status', job::STATUS_SUBMITTED, ['id' => $job->id]);
 
         $client = new fake_api_client();
-        $client->jsonresponses[] = [200, ['status' => 'done', 'bestScore' => 96.5, 'passCount' => 3]];
+        // poll(): estado ligero -> done. download_result(): estado con
+        // passes[] (una sola pasada, insegura) -> html?pass=1 -> preview.png?pass=1.
+        $client->jsonresponses[] = [200, ['status' => 'done', 'width' => 800, 'height' => 600]];
+        $client->jsonresponses[] = [200, ['passes' => [['n' => 1, 'kind' => 'generate', 'score' => 96.5]]]];
         $client->rawresponses[] = [200, '<html><body><script>alert(1)</script></body></html>'];
         $client->rawresponses[] = [200, 'png-bytes'];
 
@@ -139,9 +145,10 @@ final class sync_job_test extends \advanced_testcase {
         $reloaded = $DB->get_record('local_awakeinfographic_job', ['id' => $job->id]);
         $this->assertSame(job::STATUS_FAILED, $reloaded->status);
         $this->assertSame('unsafe_html', $reloaded->errorcode);
+        $this->assertCount(0, $DB->get_records('local_awakeinfographic_version', ['jobid' => $job->id]));
     }
 
-    public function test_poll_done_downloads_safe_html_and_marks_done(): void {
+    public function test_poll_done_downloads_every_pass_as_a_version_and_marks_done(): void {
         global $DB;
         $this->resetAfterTest();
         $user = $this->getDataGenerator()->create_user();
@@ -150,18 +157,34 @@ final class sync_job_test extends \advanced_testcase {
         $DB->set_field('local_awakeinfographic_job', 'status', job::STATUS_SUBMITTED, ['id' => $job->id]);
 
         $client = new fake_api_client();
-        $client->jsonresponses[] = [200, ['status' => 'done', 'bestScore' => 96.5, 'passCount' => 3]];
-        $client->rawresponses[] = [200, '<html><body><h1>Infografía</h1></body></html>'];
-        $client->rawresponses[] = [200, 'png-bytes'];
+        $client->jsonresponses[] = [200, ['status' => 'done', 'width' => 800, 'height' => 600]];
+        $client->jsonresponses[] = [200, ['passes' => [
+            ['n' => 1, 'kind' => 'generate', 'score' => 90.0],
+            ['n' => 2, 'kind' => 'refine', 'score' => 96.5],
+        ]]];
+        $client->rawresponses[] = [200, '<html><body><h1>Pasada 1</h1></body></html>'];
+        $client->rawresponses[] = [200, 'png-bytes-1'];
+        $client->rawresponses[] = [200, '<html><body><h1>Pasada 2</h1></body></html>'];
+        $client->rawresponses[] = [200, 'png-bytes-2'];
 
         $task = testable_sync_job::make($client, ['jobid' => $job->id]);
         $task->execute();
 
         $reloaded = $DB->get_record('local_awakeinfographic_job', ['id' => $job->id]);
         $this->assertSame(job::STATUS_DONE, $reloaded->status);
+        $this->assertEquals(800, $reloaded->width);
+        $this->assertEquals(2, $reloaded->currentversion);
+        $this->assertEquals(2, $reloaded->bestversion); // mejor score de las dos.
+
+        $versions = array_values($DB->get_records('local_awakeinfographic_version', ['jobid' => $job->id], 'versionno ASC'));
+        $this->assertCount(2, $versions);
+        $this->assertSame('generate', $versions[0]->origin);
+        $this->assertSame('refine', $versions[1]->origin);
 
         $context = \context_user::instance((int) $user->id);
-        $files = get_file_storage()->get_area_files($context->id, 'local_awakeinfographic', 'result', $job->id, 'itemid', false);
+        $files = get_file_storage()->get_area_files(
+            $context->id, 'local_awakeinfographic', 'version', $versions[1]->id, 'itemid', false
+        );
         $this->assertCount(1, $files);
     }
 

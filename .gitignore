@@ -5,6 +5,9 @@ node_modules/
 dist/
 build/
 
+# Zip del plugin de Moodle listo para instalar (se regenera, no se versiona)
+dist-moodle-plugin/
+
 # Generated images / runtime output
 output/
 *.tmp
