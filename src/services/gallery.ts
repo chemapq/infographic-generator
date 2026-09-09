@@ -138,9 +138,14 @@ export class FsGalleryRepository implements GalleryRepository {
 
     let items = await loadAllSummaries();
 
-    if (env.galleryScope === 'owner' && query.ownerId) {
+    if ((query.strictOwner || env.galleryScope === 'owner') && query.ownerId) {
       const owner = query.ownerId;
-      items = items.filter((item) => item.ownerId === owner || item.ownerId === null);
+      // Los jobs sin dueño (anteriores a la cookie `ig_owner`) se cuelan en el
+      // modo laxo para que el historial previo no pareciera desaparecer. En el
+      // estricto no: ahí el dueño es una persona y "de nadie" no es "de todos".
+      items = query.strictOwner
+        ? items.filter((item) => item.ownerId === owner)
+        : items.filter((item) => item.ownerId === owner || item.ownerId === null);
     }
 
     if (query.status && query.status !== 'all') {

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { GalleryQuery, JobStatus } from '../types.js';
+import { readEmbedSession } from '../services/embed.js';
 import { galleryRepository } from '../services/gallery.js';
 
 export const galleryRouter = Router();
@@ -25,6 +26,9 @@ galleryRouter.get('/', async (req, res) => {
     status,
     sort,
     ownerId: req.ownerId ?? null,
+    // Desde el iframe de Moodle cada profesor ve solo lo suyo, sin depender
+    // de cómo esté puesto GALLERY_SCOPE en el despliegue.
+    strictOwner: readEmbedSession(req) !== null,
   };
 
   res.json(await galleryRepository.list(query));

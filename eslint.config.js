@@ -3,11 +3,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    // moodle-plugin/local/awakeinfographic/js/*.js son copia literal y
-    // generada de public/*.js (npm run build:moodle): la fuente ya se lint-ea
-    // ahí, lint-ear la copia sería redundante (y necesitaría los mismos
-    // globals de navegador que public/**/*.js).
-    ignores: ['dist/', 'node_modules/', 'coverage/', 'output/', 'moodle-plugin/**/js/*.js'],
+    ignores: ['dist/', 'node_modules/', 'coverage/', 'output/'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -39,6 +35,7 @@ export default tseslint.config(
         FormData: 'readonly',
         URL: 'readonly',
         URLSearchParams: 'readonly',
+        CustomEvent: 'readonly',
         EventSource: 'readonly',
         NodeFilter: 'readonly',
         confirm: 'readonly',
@@ -50,18 +47,6 @@ export default tseslint.config(
     },
     rules: {
       '@typescript-eslint/no-unused-expressions': 'off',
-    },
-  },
-  {
-    // Scripts de build en Node plano (ESM), fuera de src/.
-    files: ['scripts/**/*.mjs'],
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      globals: {
-        process: 'readonly',
-        console: 'readonly',
-      },
     },
   },
 );

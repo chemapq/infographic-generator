@@ -598,10 +598,35 @@
     }
   }
 
+  /* ───────────── permisos ───────────── */
+  // Sin permiso de edición (lo dice Moodle en el ticket) no se ofrecen las dos
+  // puertas de entrada al editor: el motor las rechazaría con un 403 y el
+  // profesor no puede hacer nada al respecto.
+  if (window.IG_CONFIG.features.edit === false) {
+    $('btn-edit').hidden = true;
+    $('btn-edit-text').hidden = true;
+  }
+
   /* ───────────── sesión ───────────── */
-  // El botón de salir solo aparece si esta instalación tiene login. En Moodle
-  // (features.auth = false) la sesión es la del propio Moodle: ni se consulta
-  // el estado ni se muestra el botón.
+  // Cualquier 401 llega aquí desde api.js. Un aviso, una sola vez, y con la
+  // salida que corresponda a cada modo.
+  let sessionnoticeshown = false;
+  window.addEventListener('ig:unauthorized', () => {
+    if (sessionnoticeshown) return;
+    sessionnoticeshown = true;
+
+    const notice = document.createElement('div');
+    notice.className = 'session-expired';
+    notice.setAttribute('role', 'alert');
+    notice.innerHTML = window.IG_CONFIG.features.embedded
+      ? '<strong>La sesión ha caducado.</strong> Recarga la página de Moodle para seguir trabajando.'
+      : '<strong>La sesión ha caducado.</strong> <a href="/login.html">Vuelve a entrar</a> para seguir trabajando.';
+    document.body.append(notice);
+  });
+
+  // El botón de salir solo aparece si esta instalación tiene login. En el
+  // iframe de Moodle (features.auth = false) la sesión la trae Moodle: ni se
+  // consulta el estado ni se muestra el botón.
   if (window.IG_CONFIG.features.auth) {
     (async () => {
       try {

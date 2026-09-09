@@ -5,6 +5,8 @@ if ($hassiteconfig) {
     $settings = new admin_settingpage('local_awakeinfographic', get_string('pluginname', 'local_awakeinfographic'));
     $ADMIN->add('localplugins', $settings);
 
+    // El origen del iframe. Todo lo demás (pasadas, tamaños, cupos) lo decide
+    // el motor: duplicar aquí sus ajustes solo creaba dos sitios donde mirar.
     $settings->add(new admin_setting_configtext(
         'local_awakeinfographic/apibaseurl',
         get_string('setting:apibaseurl', 'local_awakeinfographic'),
@@ -14,31 +16,14 @@ if ($hassiteconfig) {
     ));
 
     $settings->add(new admin_setting_configpasswordunmask(
-        'local_awakeinfographic/apikey',
-        get_string('setting:apikey', 'local_awakeinfographic'),
-        get_string('setting:apikey_desc', 'local_awakeinfographic'),
+        'local_awakeinfographic/embedsecret',
+        get_string('setting:embedsecret', 'local_awakeinfographic'),
+        get_string('setting:embedsecret_desc', 'local_awakeinfographic'),
         ''
     ));
 
-    $maxpassesoptions = array_combine(range(1, 8), range(1, 8));
-    $settings->add(new admin_setting_configselect(
-        'local_awakeinfographic/maxpassesdefault',
-        get_string('setting:maxpassesdefault', 'local_awakeinfographic'),
-        get_string('setting:maxpassesdefault_desc', 'local_awakeinfographic'),
-        3,
-        $maxpassesoptions
-    ));
-
-    $settings->add(new admin_setting_configtext(
-        'local_awakeinfographic/polltimeoutminutes',
-        get_string('setting:polltimeoutminutes', 'local_awakeinfographic'),
-        get_string('setting:polltimeoutminutes_desc', 'local_awakeinfographic'),
-        20,
-        PARAM_INT
-    ));
-
-    // Apaga solo la edición con IA (que cuesta tokens); la manual sigue
-    // disponible porque es gratis (§6.13).
+    // Apaga la edición para todo el sitio, se tenga o no la capability. Es el
+    // freno de mano del administrador: editar consume tokens de pago.
     $settings->add(new admin_setting_configcheckbox(
         'local_awakeinfographic/allowaiedit',
         get_string('setting:allowaiedit', 'local_awakeinfographic'),

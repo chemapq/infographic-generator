@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import multer from 'multer';
 import path from 'node:path';
 import { env } from '../config/env.js';
+import { readEmbedSession } from '../services/embed.js';
 import { galleryRepository } from '../services/gallery.js';
 import type { IterateTarget } from '../services/claude/prompts.js';
 import { describeUnsupportedImage } from '../services/errors.js';
@@ -33,6 +35,50 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: env.maxUploadMb * 1024 * 1024, files: 1 },
 });
+
+/**
+ * Aislamiento por dueño para las sesiones del iframe de Moodle, en un solo
+ * sitio: `router.param` corre antes de cualquier ruta que lleve `:id`, así
+ * que cubre las nueve de abajo y las que vengan después sin tener que
+ * acordarse de nada.
+ *
+ * Solo se aplica a esas sesiones. En el despliegue web el dueño es la cookie
+ * `ig_owner`, una etiqueta de conveniencia y no una identidad (owner.ts):
+ * aplicarlo ahí esconderría el historial de quien cambie de navegador. En el
+ * iframe, en cambio, el dueño viene firmado y es un usuario real de Moodle.
+ */
+jobsRouter.param('id', (req, res, next, id: string) => {
+  const embed = readEmbedSession(req);
+  if (!embed) {
+    next();
+    return;
+  }
+  getJobRecord(id)
+    .then((record) => {
+      // 404 y no 403: un 403 confirmaría que el job existe y es de otro.
+      // Que no exista lo responde la ruta, con su propio mensaje.
+      if (record && record.ownerId !== embed.owner) {
+        res.status(404).json({ error: 'Job no encontrado' });
+        return;
+      }
+      next();
+    })
+    .catch(next);
+});
+
+/**
+ * `true` —y ya ha respondido— si esta sesión de embed no puede escribir.
+ * Lo decide Moodle: la capability `local/awakeinfographic:edit` y el ajuste
+ * «Permitir editar con IA», que viajan juntos en el ticket.
+ */
+function rejectedByEmbedEdit(req: Request, res: Response): boolean {
+  const embed = readEmbedSession(req);
+  if (!embed || embed.edit) return false;
+  res.status(403).json({
+    error: 'No tienes permiso para editar infografías en este Moodle. Pídeselo a un administrador.',
+  });
+  return true;
+}
 
 /** POST /api/jobs — multipart con la imagen (+ maxPasses, notes). Arranca el pipeline. */
 jobsRouter.post('/', upload.single('image'), async (req, res) => {
@@ -106,6 +152,8 @@ function field(value: unknown, maxLength: number): string | undefined {
  * (elemento señalado en el editor visual) la petición se acota a ese elemento.
  */
 jobsRouter.post('/:id/iterate', async (req, res) => {
+  if (rejectedByEmbedEdit(req, res)) return;
+
   const prompt = field(req.body?.prompt, 2000);
   if (!prompt) {
     res.status(400).json({ error: 'Falta el campo "prompt".' });
@@ -163,6 +211,10 @@ function parseTextEdits(body: unknown): TextEdit[] | null {
  * `GET /:id`), igual que un `iterate` fallido.
  */
 jobsRouter.post('/:id/text-edit', async (req, res) => {
+  // La edición manual no cuesta tokens, pero sigue siendo una escritura sobre
+  // el activo: la gobierna la misma capability.
+  if (rejectedByEmbedEdit(req, res)) return;
+
   const edits = parseTextEdits(req.body);
   if (!edits) {
     res.status(400).json({

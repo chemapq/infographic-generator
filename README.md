@@ -108,13 +108,47 @@ persistente y pasos por host en [DEPLOY.md](DEPLOY.md).
 | `PATCH /api/jobs/:id` | `{ "title": "..." }` → renombra el job. |
 | `DELETE /api/jobs/:id` | Borra el job (`409` si sigue en curso). |
 
-## API v1 (integraciones — Moodle y similares)
+## Moodle (el plugin es un iframe de esta app)
+
+El plugin `local_awakeinfographic` ([moodle-plugin/](moodle-plugin/), PHP, no forma parte de
+este build de Node) no reimplementa nada: incrusta **esta misma app** en un iframe y le pasa la
+identidad del usuario de Moodle en un ticket firmado. Cada profesor entra ya autenticado y ve
+solo su propio historial.
+
+```
+Moodle index.php                              motor
+  ticket = v1.<payload>.<HMAC(EMBED_SECRET)>    GET /embed
+  <iframe src="{motor}/embed?t=…">  ─────────►    verifica firma y caducidad (120 s)
+                                                 emite token de sesión (AUTH_SECRET, 12 h)
+  la app carga dentro del marco  ◄────────────  302 → /?t=<token>
+```
+
+```bash
+EMBED_SECRET=<32 bytes en hex>                    # el mismo valor en el ajuste del plugin
+EMBED_ALLOWED_ORIGINS=https://moodle.ejemplo.com  # quién puede enmarcar la app
+```
+
+El token viaja en la querystring, no en una cabecera: la app lo necesita también en `<img src>`,
+en el iframe del resultado y en los enlaces de descarga, donde no se pueden poner cabeceras.
+`IG_CONFIG.extraParams` ya existía para eso. El efecto secundario es bueno: **sin cookies**, así
+que un navegador con las cookies de terceros bloqueadas (Safari por defecto) funciona igual.
+
+Dentro de una sesión de iframe el aislamiento por dueño es real: la galería filtra por `ownerId`
+sea cual sea `GALLERY_SCOPE`, y las rutas `/api/jobs/:id*` devuelven 404 —no 403, para no
+confirmar que existe— si el job es de otro. El despliegue web con contraseña compartida no
+cambia: sigue viendo todo, porque ahí el dueño es una cookie de conveniencia y no una identidad.
+
+Detalles del contrato, instalación y permisos:
+[moodle-plugin/local/awakeinfographic/README.md](moodle-plugin/local/awakeinfographic/README.md).
+El código está repartido entre [src/services/embed.ts](src/services/embed.ts) (motor) y
+`classes/embed.php` (plugin) — si cambias uno, cambia el otro.
+
+## API v1 (integraciones servidor-a-servidor)
 
 Además de la API de arriba (para el navegador, con cookie de sesión), hay una segunda API en
 `/api/v1` pensada para un **cliente servidor-a-servidor**: bearer token, sondeo en vez de SSE,
-respuestas ligeras e idempotencia. Es la que consume el plugin `local_awakeinfographic` de
-Moodle — ver [PLAN_MOODLE.md](PLAN_MOODLE.md) para el porqué y [docs/openapi.yaml](docs/openapi.yaml)
-para el contrato completo.
+respuestas ligeras e idempotencia. La usó el plugin de Moodle hasta su 1.0.0 y sigue disponible
+para integraciones propias — ver [docs/openapi.yaml](docs/openapi.yaml) para el contrato completo.
 
 ```bash
 API_KEYS=moodle-pruebas:clave-larga-y-aleatoria   # en .env
@@ -132,7 +166,7 @@ sus propios jobs (404 en cualquier otro caso, incluidos los de otra clave); `POS
 `Idempotency-Key` (un reintento con la misma clave devuelve el mismo `jobId`, sin cobrar tokens
 dos veces); `GET /jobs/:id` no lleva `spec` ni `passes[]` salvo `?include=passes`; y `/html` se
 sirve como adjunto, no `inline`. `UI_ENABLED=false` arranca el motor sirviendo solo esta API (sin
-estáticos, login ni galería web) — pensado para un despliegue que solo alimenta a Moodle.
+estáticos, login ni galería web, y sin `/embed`: el iframe de Moodle necesita la interfaz).
 
 `POST /api/v1/edit` es la otra mitad: edición **sin estado** (HTML + prompt entran, HTML sale),
 sin job, sin `output/`, sin Chromium — una única llamada a Claude, decenas de segundos en vez de
@@ -144,11 +178,6 @@ curl -s -X POST localhost:3000/api/v1/edit \
   -H 'Authorization: Bearer clave-larga-y-aleatoria' -H 'Content-Type: application/json' \
   -d '{"html":"<!DOCTYPE html>…","prompt":"pon el titular en mayúsculas"}'
 ```
-
-El plugin `local_awakeinfographic` que consume esta API vive en [moodle-plugin/](moodle-plugin/)
-(PHP, no forma parte de este build de Node) — reutiliza `public/app.js`/`public/editor.js` **sin
-tocarlos**, copiados por `npm run build:moodle` (ver [moodle-plugin/local/awakeinfographic/README.md](moodle-plugin/local/awakeinfographic/README.md)).
-Cómo instalarlo y probarlo de punta a punta con `moodle-docker`: [PLAN_MOODLE.md §8](PLAN_MOODLE.md#8-cómo-probarlo-de-cero).
 
 ## Estructura
 
@@ -169,21 +198,21 @@ src/
     ├── differ.ts             # sharp + pixelmatch: score + heatmap
     ├── gallery.ts            # historial local: listar, buscar, paginar (ver PLAN_GALERIA.md)
     ├── thumbs.ts             # miniatura WebP a demanda
-    ├── owner.ts              # cookie ig_owner: agrupa jobs, no controla acceso
+    ├── owner.ts              # cookie ig_owner (o el dueño firmado del iframe de Moodle)
     ├── auth.ts               # local sin fricción, remoto con contraseña
+    ├── embed.ts              # ticket de Moodle → sesión de iframe (ver § Moodle)
     ├── errors.ts             # traduce los fallos a lenguaje llano
     ├── image.ts              # formato real por los bytes de cabecera
     ├── validator.ts          # contrato: sin JS ni red fuera de Google Fonts
     └── store.ts              # persistencia en output/<jobId>/
 public/
 ├── index.html · styles.css   # UI: subida · progreso · resultado · editor
-├── config.js · api.js        # IG_CONFIG + apiFetch()/fileUrl(): mismo app.js/editor.js
-│                              # sirven a la app y al plugin de Moodle sin tocarlos
+├── config.js · api.js        # IG_CONFIG + apiFetch()/fileUrl(); config.js detecta el
+│                              # modo iframe leyendo el ?t= que deja /embed
 ├── login.html                # pantalla de acceso (solo desde fuera del equipo)
-├── app.js                    # subida, SSE (o sondeo si features.sse=false), timeline, comparador
+├── app.js                    # subida, SSE, timeline, comparador
 └── editor.js                 # señalar elementos (Claude) o editar textos a mano (sin IA)
-scripts/
-└── build-moodle.mjs          # public/* → moodle-plugin/…/{templates,styles,js} (ver PLAN_MOODLE.md §6.5)
+moodle-plugin/                # el plugin: 12 ficheros PHP, ni JS ni CSS de la app
 ```
 
 ## Uso de tokens

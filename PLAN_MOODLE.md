@@ -1,5 +1,30 @@
 # Plan — API del motor + plugin visual de Moodle
 
+> ## ⚠️ Documento histórico — ya no describe el plugin
+>
+> Este plan llevó al plugin **0.1.0**, que reimplementaba la interfaz de la app dentro de
+> Moodle: una copia generada de `public/` calificada bajo `.ig-app`, endpoints `ajax/*` de
+> proxy, dos tablas, tres fileareas y dos tareas de cron.
+>
+> **Se retiró en la 1.0.0.** Esa capa de traducción daba un resultado visual peor que la app
+> original (el CSS peleando con Boost) y mantenía una segunda copia de datos que el motor ya
+> guardaba. Desde la 1.0.0 el plugin **es un iframe** de la app real, con SSO por ticket
+> firmado, y no guarda nada.
+>
+> Quedan obsoletas, en concreto: **§4.1** (config.js compartido y `build:moodle`), **§6.2**
+> (esquema de tablas), **§6.4** (endpoints `ajax/`), **§6.5** (generación de assets) y **§8**
+> (cómo probarlo). El resto sigue siendo la mejor explicación de *por qué* se tomó cada
+> decisión, y **§3** sigue siendo el contrato vigente de la API v1, que existe para
+> integraciones servidor-a-servidor.
+>
+> El diseño actual está en
+> [moodle-plugin/local/awakeinfographic/README.md](moodle-plugin/local/awakeinfographic/README.md)
+> y en [README.md § Moodle](README.md#moodle-el-plugin-es-un-iframe-de-esta-app).
+>
+> ---
+>
+> *Lo que decía este plan, para contexto:*
+>
 > El plugin de Moodle **es la misma interfaz** que la app: la pantalla de subida, el resultado con
 > el comparador y **el editor visual completo** — señalar elementos y pedirle el cambio a Claude,
 > o editar los textos a mano. No es un formulario de Moodle con un botón de descarga.

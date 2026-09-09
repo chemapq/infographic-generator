@@ -18,11 +18,21 @@ services:
         sync: false
       - key: AUTH_PASSWORD
         sync: false
-      # Para clientes servidor-a-servidor (el plugin de Moodle). Formato
-      # "nombre:clave,nombre2:clave2" — ver README § API v1. Puede dejarse
-      # vacío si este despliegue solo sirve la interfaz web.
+      # Para clientes servidor-a-servidor. Formato "nombre:clave,nombre2:clave2"
+      # — ver README § API v1. Puede dejarse vacío: el plugin de Moodle ya no
+      # la usa, y este despliegue puede servir solo la interfaz web.
       - key: API_KEYS
         sync: false
-      # Generado por Render al crear el servicio; no hace falta tocarlo.
+      # Secreto compartido con el plugin de Moodle, que incrusta esta app en un
+      # iframe. Tiene que coincidir con el ajuste homónimo del plugin. Vacío =
+      # /embed responde 404.
+      - key: EMBED_SECRET
+        sync: false
+      # El Moodle que puede incrustarla, p. ej. https://moodle.ejemplo.com.
+      # Vacío = sin cabecera frame-ancestors (cualquiera podría enmarcarla).
+      - key: EMBED_ALLOWED_ORIGINS
+        sync: false
+      # Generado por Render al crear el servicio; no hace falta tocarlo. Firma
+      # también las sesiones que abre un ticket de Moodle.
       - key: AUTH_SECRET
         generateValue: true

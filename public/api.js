@@ -32,7 +32,16 @@
 
   /** `fetch()` de una llamada de API: prefija `apiBase` y añade `extraParams`. */
   window.apiFetch = function apiFetch(path, options) {
-    return fetch(window.apiUrl(path), options);
+    return fetch(window.apiUrl(path), options).then((response) => {
+      // Sesión caducada. Se avisa desde aquí, un único sitio, porque cada
+      // llamante trata su error a su manera y ninguno puede resolver esto:
+      // dentro del iframe de Moodle no hay pantalla de login a la que mandar
+      // a nadie. app.js escucha el evento y pinta el aviso.
+      if (response.status === 401) {
+        window.dispatchEvent(new CustomEvent('ig:unauthorized'));
+      }
+      return response;
+    });
   };
 
   /** URL de un recurso servido como fichero (imagen, HTML, descarga): prefija `filesBase`. */

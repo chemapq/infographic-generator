@@ -99,6 +99,12 @@ export interface GalleryQuery {
   status?: JobStatus | 'all';
   sort?: 'recent' | 'score';
   ownerId?: string | null;
+  /**
+   * Filtra por `ownerId` sea cual sea `GALLERY_SCOPE`, y sin colar los jobs
+   * sin dueño. Lo activan las sesiones del iframe de Moodle, donde el dueño
+   * es un usuario real y no una cookie de conveniencia.
+   */
+  strictOwner?: boolean;
 }
 
 export interface GalleryPage {

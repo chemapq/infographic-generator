@@ -1,0 +1,26 @@
+{{!
+    @template local_awakeinfographic/frame
+
+    La app del motor, incrustada. Todo lo que se ve dentro del marco lo sirve
+    el motor; aquí no hay interfaz que mantener.
+
+    Sin `sandbox` a propósito: el motor es un servicio de confianza declarado
+    por un administrador, y un sandbox rompería dos cosas que la app necesita
+    —la descarga del HTML generado y el iframe anidado donde se previsualiza
+    el resultado—.
+
+    Contexto:
+    * src - URL de `GET /embed` del motor, con el ticket firmado ya dentro
+    * title - texto accesible del marco
+
+    Ejemplo:
+    {
+        "src": "https://motor.ejemplo.com/embed?t=v1.eyJvd25lciI6...",
+        "title": "Generador de infografías"
+    }
+}}
+<iframe class="local-awakeinfographic-frame"
+        src="{{src}}"
+        title="{{title}}"
+        allow="clipboard-write; fullscreen"
+        referrerpolicy="strict-origin-when-cross-origin"></iframe>

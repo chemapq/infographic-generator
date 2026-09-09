@@ -41,6 +41,23 @@ export const env = {
   /** Firma las sesiones. Si no se define, se genera y las sesiones caen al reiniciar. */
   authSecret: process.env.AUTH_SECRET?.trim() || crypto.randomBytes(32).toString('hex'),
   authSessionHours: int('AUTH_SESSION_HOURS', 12),
+
+  /**
+   * Secreto compartido con el plugin de Moodle: firma los tickets con los que
+   * el plugin abre la app dentro de su iframe ya autenticada (services/embed.ts).
+   * Vacía = no se aceptan tickets y `/embed` responde 404.
+   */
+  embedSecret: process.env.EMBED_SECRET?.trim() ?? '',
+  /** Duración de la sesión que abre un ticket, en horas. */
+  embedSessionHours: int('EMBED_SESSION_HOURS', 12),
+  /**
+   * Orígenes que pueden meter la app en un iframe, separados por comas
+   * (p. ej. `https://moodle.ejemplo.com`). Vacía = no se manda ninguna CSP,
+   * que es lo que hace falta en local. Restringe, no habilita: sin esto el
+   * iframe también funciona, porque el motor no manda `X-Frame-Options`.
+   */
+  embedAllowedOrigins: process.env.EMBED_ALLOWED_ORIGINS?.trim() ?? '',
+
   outputDir: path.resolve(process.cwd(), process.env.OUTPUT_DIR ?? 'output'),
   anthropicModel: process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8',
   maxPasses: int('MAX_PASSES', 5),
