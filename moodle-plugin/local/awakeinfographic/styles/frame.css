@@ -28,6 +28,18 @@ body.local-awakeinfographic-embed {
   height: 100%;
   border: 0;
   display: block;
+  /*
+   * Por encima de toda la escala de z-index de Bootstrap, que es la que usa
+   * Boost (tooltip, el valor más alto, es 1070).
+   *
+   * Un `position: fixed` sin `z-index` se apila con los elementos de
+   * `z-index: auto`, así que CUALQUIER elemento posicionado de Moodle con un
+   * z-index propio —una barra pegajosa, un cajón lateral cerrado, el botón
+   * flotante del pie— se queda por delante del marco. No se nota mirando,
+   * porque lo que hay encima suele ser transparente o estar vacío, pero se
+   * traga los clics y el arrastre: la app se ve entera y no responde a nada.
+   */
+  z-index: 1080;
   /* El azul profundo de la marca, no el blanco del navegador: evita el
      destello en blanco entre que se pinta el marco y carga la app. */
   background: #011932;

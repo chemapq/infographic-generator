@@ -105,12 +105,59 @@
     if (e.key === 'Enter' || e.key === ' ') fileInput.click();
   });
   fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
-  ['dragover', 'dragleave', 'drop'].forEach((type) => {
-    dropzone.addEventListener(type, (e) => {
-      e.preventDefault();
-      dropzone.classList.toggle('dragover', type === 'dragover');
-      if (type === 'drop') setFile(e.dataTransfer.files[0]);
-    });
+
+  /*
+   * El arrastre se escucha en TODA la ventana, no solo en el recuadro.
+   *
+   * El objetivo del arrastre lo elige el navegador en el `dragenter`: si nadie
+   * lo cancela ahí, el objetivo pasa a ser el `<body>` y no el elemento bajo
+   * el puntero. Antes solo se cancelaba `dragover` sobre el recuadro, que en
+   * una página normal basta, pero dentro del iframe el recuadro es un objetivo
+   * pequeño en medio de una ventana ajena: el puntero entra por el borde del
+   * marco, sobre el `<body>`, y la primera decisión —«este documento no acepta
+   * arrastres»— se toma ahí. Aceptando desde el primer píxel del marco no hay
+   * decisión que corregir después, y de paso se puede soltar en cualquier
+   * parte de la app y no solo dentro del recuadro.
+   *
+   * Cancelar además el `drop` en toda la ventana es la red de seguridad: sin
+   * eso, una imagen soltada fuera del recuadro hace que el navegador la abra
+   * y sustituya la app, que dentro del iframe se ve como si Moodle se hubiera
+   * roto.
+   */
+  const dragHasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  // `dragenter` y `dragleave` saltan también al pasar de un elemento a otro
+  // dentro de la propia página; con un contador el resaltado no parpadea.
+  let dragDepth = 0;
+  function paintDragging(depth) {
+    dragDepth = Math.max(0, depth);
+    dropzone.classList.toggle('dragover', dragDepth > 0);
+  }
+
+  window.addEventListener('dragenter', (e) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    paintDragging(dragDepth + 1);
+  });
+  window.addEventListener('dragover', (e) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    // Sin esto el navegador puede quedarse con el efecto «mover» que traiga el
+    // arrastre y pintar el cursor de prohibido aunque el drop esté aceptado.
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('dragleave', (e) => {
+    if (!dragHasFiles(e)) return;
+    paintDragging(dragDepth - 1);
+  });
+  window.addEventListener('drop', (e) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    paintDragging(0);
+    // Fuera de la vista de subida no hay nada que hacer con el fichero, pero
+    // el preventDefault() de arriba ya ha evitado que el navegador lo abra.
+    if (viewUpload.hidden) return;
+    setFile(e.dataTransfer.files[0]);
   });
 
   $('upload-form').addEventListener('submit', async (e) => {

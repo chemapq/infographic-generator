@@ -5,7 +5,11 @@ $plugin->component = 'local_awakeinfographic';
 // De reimplementar la interfaz de la app dentro de Moodle (0.1.0) a servirla
 // en un iframe con SSO por ticket firmado (1.0.0). El upgrade es destructivo:
 // se van las dos tablas, las fileareas y las tareas — ver db/upgrade.php.
-$plugin->version   = 2026090900;
+// 1.0.1: el iframe llevaba `position: fixed` sin `z-index`, así que los
+// elementos posicionados de Moodle se le ponían delante y se tragaban los
+// clics y el arrastre. Subir la versión no es cosmético: sin ello Moodle
+// sigue sirviendo el frame.css cacheado y el arreglo no llega al navegador.
+$plugin->version   = 2026091000;
 // Suelo conservador en Moodle 4.1 (2022112800): el plugin no usa ninguna API
 // posterior a esa versión, y ahora menos que nunca (solo Page API, Output API
 // y admin settings). El staging de la empresa corre 4.4.2+ (Build: 20240821)
@@ -22,4 +26,4 @@ $plugin->requires  = 2022112800;
 // (Moodle 5.0): esa rama no existía cuando se publicó ese core.
 $plugin->supported = array(401, 404);
 $plugin->maturity  = MATURITY_STABLE;
-$plugin->release   = '1.0.0';
+$plugin->release   = '1.0.1';

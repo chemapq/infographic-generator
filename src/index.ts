@@ -113,13 +113,37 @@ if (env.uiEnabled) {
   const PUBLIC_PATHS = new Set(['/login.html', '/styles.css', '/favicon.ico', '/api/health', '/embed']);
 
   /**
+   * Los ficheros sueltos de la interfaz: config.js, api.js, editor.js, app.js
+   * y cualquier .css que se añada al lado de styles.css.
+   *
+   * Son públicos por la misma razón que styles.css —son el código del cliente,
+   * no los datos de nadie— pero dentro del iframe la razón es de peso: la
+   * sesión de embed viaja en el `?t=` de la URL, y un `<script src="app.js">`
+   * NO arrastra la querystring de la página que lo carga. Esas peticiones
+   * llegaban sin token, el guardián las cortaba con un 401 y quedaba una app
+   * pintada del todo y muerta del todo: el index.html sí había pasado (ese sí
+   * lleva el `?t=`) y styles.css también, así que se veía perfecta, pero sin
+   * una sola línea de JavaScript ejecutada no respondía a nada.
+   *
+   * Lo que hay que proteger son los datos, y esos están detrás de `/api/**`,
+   * que sigue cubierto: la propia app no puede leer un job sin token.
+   */
+  const isUiAsset = (path: string): boolean => /^\/[\w-]+\.(?:js|css)$/.test(path);
+
+  /**
    * Guardián: va antes que los estáticos y que la API, así que cubre también el
    * HTML generado y las capturas de cada job. Sin `AUTH_PASSWORD` no se interpone.
    * Un token de embed válido vale como sesión: es lo que trae al profesor desde
    * Moodle, y no puede pasar por la pantalla de contraseña.
    */
   app.use((req, res, next) => {
-    if (!authEnabled() || PUBLIC_PATHS.has(req.path) || isAuthenticated(req) || readEmbedSession(req)) {
+    if (
+      !authEnabled() ||
+      PUBLIC_PATHS.has(req.path) ||
+      isUiAsset(req.path) ||
+      isAuthenticated(req) ||
+      readEmbedSession(req)
+    ) {
       next();
       return;
     }
